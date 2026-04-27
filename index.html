@@ -15,7 +15,7 @@
       {
         requirements: [
           "numpy",
-          "pillow"   // no pandas or openpyxl needed for the cropper
+          "pillow"
         ],
         entrypoint: "cropper_app.py",
         files: {
@@ -31,9 +31,8 @@ st.set_page_config(page_title="PDF Auto Crop", layout="wide")
 st.title("📄 Auto Crop PDF Pages (remove thin border)")
 st.caption("Uses pdf.js + opencv.js, fully offline.")
 
-# ---------- Helpers to convert JS data to PIL ----------
+# ---------- helpers ----------
 def rgba_to_pil(width, height, data_js):
-    """Convert a JS Uint8Array (RGBA) to a PIL Image (RGB)."""
     buf = data_js.to_py()
     img = Image.frombytes("RGBA", (width, height), buf).convert("RGB")
     return img
@@ -44,31 +43,27 @@ pdf_file = st.file_uploader("Choose a PDF file", type="pdf")
 
 if pdf_file:
     pdf_bytes = pdf_file.read()
-
-    # Render pages with pdf.js (returns a JS array of {width, height, data})
     try:
-        js_pages = js.renderPDFPages(pdf_bytes)
+        # js.renderPDFPagesSync is a syncified version (blocking)
+        js_pages = js.renderPDFPagesSync(pdf_bytes)
     except Exception as e:
         st.error(f"PDF rendering failed: {e}")
         st.stop()
 
     n_pages = len(js_pages)
     st.success(f"Loaded {n_pages} page(s).")
-    # Convert to PIL images for preview
     pil_pages = [rgba_to_pil(p.width, p.height, p.data) for p in js_pages]
 
     max_pages = st.number_input("Pages to process", 1, n_pages, n_pages)
     pil_pages = pil_pages[:max_pages]
 
-    # Process each page
     cropped_pages = []
     status = []
     for i, pil_img in enumerate(pil_pages):
         st.write(f"Processing page {i+1}...")
-        # Convert PIL image to RGBA Uint8Array for opencv.js
         np_rgba = np.array(pil_img.convert("RGBA"))
         data_js = js.Uint8Array.new(np_rgba.flatten().tolist())
-        result = js.detectAndCrop(pil_img.width, pil_img.height, data_js, margin)
+        result = js.detectAndCropSync(pil_img.width, pil_img.height, data_js, margin)
         if result.success:
             cropped_pil = rgba_to_pil(result.width, result.height, result.data)
             cropped_pages.append(cropped_pil)
@@ -77,7 +72,6 @@ if pdf_file:
             cropped_pages.append(pil_img)
             status.append("⚠ border not found – kept original")
 
-    # Preview
     st.subheader("Preview (first page)")
     col1, col2 = st.columns(2)
     with col1:
@@ -85,7 +79,6 @@ if pdf_file:
     with col2:
         st.image(cropped_pages[0], caption=f"Cropped ({status[0]})", width='stretch')
 
-    # Downloads
     st.subheader("Download Results")
     zip_buf = io.BytesIO()
     with zipfile.ZipFile(zip_buf, "w") as zf:
@@ -94,42 +87,43 @@ if pdf_file:
             img.save(buf, format="PNG")
             zf.writestr(f"page_{idx+1:03d}.png", buf.getvalue())
     zip_buf.seek(0)
-    st.download_button("Download cropped images (ZIP)", zip_buf,
-                       "cropped_pages.zip", "application/zip")
+    st.download_button("Download cropped images (ZIP)", zip_buf, "cropped_pages.zip", "application/zip")
 
     pdf_buf = io.BytesIO()
     if cropped_pages:
         rgb_images = [img.convert("RGB") for img in cropped_pages]
         rgb_images[0].save(pdf_buf, "PDF", save_all=True, append_images=rgb_images[1:])
         pdf_buf.seek(0)
-        st.download_button("Download cropped pages (PDF)", pdf_buf,
-                           "cropped_pages.pdf", "application/pdf")
+        st.download_button("Download cropped pages (PDF)", pdf_buf, "cropped_pages.pdf", "application/pdf")
           `
         },
+        // --- This callback runs inside the Web Worker BEFORE the Python script ---
         pyodideReady: function (pyodide) {
-          // This runs inside the Web Worker – we can now load JS libraries
-          // directly into the worker’s global scope.
-
-          // 1. Load pdf.js (it will attach 'pdfjsLib' to self)
+          // Load pdf.js into the worker
           importScripts('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js');
           pdfjsLib.GlobalWorkerOptions.workerSrc =
             'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
-          // 2. Load opencv.js (it’s async, so we wrap it in a promise)
-          const loadOpenCV = new Promise((resolve) => {
-            importScripts('https://cdn.jsdelivr.net/npm/opencv.js@4.10.0');
-            cv['onRuntimeInitialized'] = () => {
-              resolve();
-            };
-          });
+          // Load opencv.js (it's async, we'll wait via a flag)
+          importScripts('https://cdn.jsdelivr.net/npm/opencv.js@4.10.0');
+          // We cannot use 'await' directly because opencv.js uses document.createElement,
+          // but importScripts runs synchronously in worker; after it finishes, 'cv' is defined.
+          // We still need to wait for cv.onRuntimeInitialized.
+          var opencvReady = false;
+          cv['onRuntimeInitialized'] = function() {
+            opencvReady = true;
+          };
 
-          // 3. Define the helper functions (will be available to Python via js.)
-          //    PDF rendering helper
-          self.renderPDFPages = async function (pdfBytes) {
+          // ---------- PDF rendering helper (syncified) ----------
+          self._renderPDFPagesAsync = async function (pdfBytes) {
+            while (!opencvReady) {
+              // Wait a tiny bit for OpenCV – actually we don't need OpenCV for rendering,
+              // but we need it later for detection. It's fine.
+              await new Promise(resolve => setTimeout(resolve, 10));
+            }
             const loadingTask = pdfjsLib.getDocument({ data: pdfBytes });
             const pdf = await loadingTask.promise;
             const pages = [];
-
             for (let i = 1; i <= pdf.numPages; i++) {
               const page = await pdf.getPage(i);
               const vp = page.getViewport({ scale: 300 / 72 }); // 300 DPI
@@ -145,15 +139,15 @@ if pdf_file:
             }
             return pages;
           };
+          // Wrap it as a sync function for Python
+          self.renderPDFPagesSync = pyodide.ffi.wrappers.syncify(self._renderPDFPagesAsync);
 
-          //    Border detection + crop helper
-          //    We'll wait for OpenCV to be ready before using it
-          self.detectAndCrop = async function (width, height, data, marginPercent) {
-            await loadOpenCV;  // ensures cv is ready
-            // data is a Uint8ClampedArray (RGBA)
+          // ---------- Border detection + crop helper (syncified) ----------
+          self._detectAndCropAsync = async function (width, height, data, marginPercent) {
+            while (!opencvReady) {
+              await new Promise(resolve => setTimeout(resolve, 10));
+            }
             let src = cv.matFromArray(height, width, cv.CV_8UC4, data);
-
-            // Grayscale + edge detection
             let gray = new cv.Mat();
             cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
             let blurred = new cv.Mat();
@@ -161,17 +155,15 @@ if pdf_file:
             let edges = new cv.Mat();
             cv.Canny(blurred, edges, 30, 100);
 
-            // Find contours
             let contours = new cv.MatVector();
             let hierarchy = new cv.Mat();
             cv.findContours(edges, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
 
             let success = false;
-            let croppedData = data;  // fallback
+            let croppedData = data;
             let croppedW = width, croppedH = height;
 
             if (contours.size() > 0) {
-              // Look for largest quadrilateral
               let bestQuad = null, maxArea = 0;
               const imgArea = width * height;
               for (let i = 0; i < contours.size(); i++) {
@@ -190,7 +182,6 @@ if pdf_file:
               }
 
               if (bestQuad) {
-                // Order points (simple version)
                 let pts = [];
                 for (let r = 0; r < 4; r++) {
                   pts.push({x: bestQuad.data32F[r*2], y: bestQuad.data32F[r*2+1]});
@@ -218,29 +209,24 @@ if pdf_file:
                 const mX = Math.min(Math.floor(maxW * marginPercent / 100), maxW >> 2);
                 const mY = Math.min(Math.floor(maxH * marginPercent / 100), maxH >> 2);
                 let rect = new cv.Rect(mX, mY, maxW - mX*2, maxH - mY*2);
-                let cropped = warped.roi(rect).clone();  // clone so we can delete warped
+                let cropped = warped.roi(rect).clone();
 
                 croppedData = new Uint8Array(cropped.data);
                 croppedW = cropped.cols;
                 croppedH = cropped.rows;
                 success = true;
 
-                // cleanup
                 srcPts.delete(); dstPts.delete(); transform.delete(); warped.delete(); cropped.delete();
                 bestQuad.delete();
               }
             }
-            // cleanup
             src.delete(); gray.delete(); blurred.delete(); edges.delete();
             contours.delete(); hierarchy.delete();
 
-            return {
-              success: success,
-              width: croppedW,
-              height: croppedH,
-              data: croppedData
-            };
+            return { success, width: croppedW, height: croppedH, data: croppedData };
           };
+          // Sync wrapper
+          self.detectAndCropSync = pyodide.ffi.wrappers.syncify(self._detectAndCropAsync);
         }
       },
       document.getElementById("root")
