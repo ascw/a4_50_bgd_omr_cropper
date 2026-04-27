@@ -10,14 +10,16 @@
 <body>
   <div id="root"></div>
 
-  <!-- opencv.js – loaded before Stlite, so it’s available when Python starts -->
+  <!-- pdf.js (v3) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <!-- opencv.js (v4.10) -->
   <script async src="https://cdn.jsdelivr.net/npm/opencv.js@4.10.0"
           onload="onOpenCVReady()"></script>
 
   <script src="https://cdn.jsdelivr.net/npm/@stlite/mountable@0.63.1/build/stlite.js"></script>
   <script>
     // ------------------------------------------------------------
-    // 1.  opencv.js readiness
+    // 1.  Wait for opencv.js to be ready
     // ------------------------------------------------------------
     let openCVReady = false;
     let openCVResolve = null;
@@ -29,7 +31,6 @@
         openCVResolve();
       };
     }
-    // Python will call this to wait
     async function waitForOpenCV() {
       await cvReadyPromise;
       return true;
@@ -37,249 +38,244 @@
     window.waitForOpenCV = waitForOpenCV;
 
     // ------------------------------------------------------------
-    // 2.  PyMuPDF custom wheel loader (unchanged)
+    // 2.  pdf.js renderer → returns array of {width, height, data}
+    //     data is a Uint8Array of RGBA pixels (4 bytes per pixel)
     // ------------------------------------------------------------
-    async function loadPyMuPDFWheel() {
-      if (window._pymupdf_loaded) return true;
-      try {
-        console.log("Loading PyMuPDF Pyodide wheel...");
-        await pyodide.pyodide_js.loadPackage(
-          'https://cdn.jsdelivr.net/npm/@bentopdf/pymupdf-wasm@0.11.16/assets/pymupdf-1.26.3-cp313-none-pyodide_2025_0_wasm32.whl'
-        );
-        window._pymupdf_loaded = true;
-        return true;
-      } catch (error) {
-        console.error("Failed to load PyMuPDF wheel:", error);
-        throw error;
+    async function renderPDFPages(pdfBytes) {
+      // Set worker source (use the same version)
+      pdfjsLib.GlobalWorkerOptions.workerSrc =
+        'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+      const loadingTask = pdfjsLib.getDocument({ data: pdfBytes });
+      const pdf = await loadingTask.promise;
+      const pages = [];
+
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const viewport = page.getViewport({ scale: 1.0 });   // 72 dpi; we'll scale to 300 dpi
+        const scale = 300 / 72;                               // desired DPI / base DPI
+        const scaledViewport = page.getViewport({ scale });
+
+        const canvas = document.createElement('canvas');
+        canvas.width = scaledViewport.width;
+        canvas.height = scaledViewport.height;
+        const context = canvas.getContext('2d');
+
+        await page.render({ canvasContext: context, viewport: scaledViewport }).promise;
+
+        const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+        pages.push({
+          width: imageData.width,
+          height: imageData.height,
+          data: imageData.data   // Uint8ClampedArray of RGBA
+        });
       }
+      return pages;
     }
-    window.loadPyMuPDFWheel = loadPyMuPDFWheel;
+    window.renderPDFPages = renderPDFPages;
 
     // ------------------------------------------------------------
-    // 3.  Stlite mount
+    // 3.  opencv.js border detection + crop
+    //     Returns cropped RGBA image data + success flag
+    // ------------------------------------------------------------
+    async function detectAndCropJS(width, height, data, marginPercent) {
+      // Convert to cv.Mat (RGBA → RGBA)
+      let src = cv.matFromArray(height, width, cv.CV_8UC4, data);
+
+      // Convert to grayscale
+      let gray = new cv.Mat();
+      cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+
+      // Edge detection
+      let blurred = new cv.Mat();
+      cv.GaussianBlur(gray, blurred, new cv.Size(5, 5), 0);
+      let edges = new cv.Mat();
+      cv.Canny(blurred, edges, 30, 100);
+
+      // Find contours
+      let contours = new cv.MatVector();
+      let hierarchy = new cv.Mat();
+      cv.findContours(edges, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
+      if (contours.size() == 0) {
+        // Cleanup and return original
+        src.delete(); gray.delete(); blurred.delete(); edges.delete();
+        contours.delete(); hierarchy.delete();
+        return { success: false, data: data, width: width, height: height };
+      }
+
+      // Find largest quadrilateral
+      let bestQuad = null;
+      let maxArea = 0;
+      const imgArea = width * height;
+
+      for (let i = 0; i < contours.size(); i++) {
+        let cnt = contours.get(i);
+        let area = cv.contourArea(cnt);
+        if (area < 0.3 * imgArea) continue;
+
+        let peri = cv.arcLength(cnt, true);
+        let approx = new cv.Mat();
+        cv.approxPolyDP(cnt, approx, 0.02 * peri, true);
+
+        if (approx.rows == 4 && area > maxArea) {
+          maxArea = area;
+          if (bestQuad) bestQuad.delete();
+          bestQuad = approx.clone();
+        }
+        approx.delete();
+      }
+
+      if (!bestQuad) {
+        // Cleanup and return original
+        src.delete(); gray.delete(); blurred.delete(); edges.delete();
+        contours.delete(); hierarchy.delete();
+        return { success: false, data: data, width: width, height: height };
+      }
+
+      // Order points
+      let pts = [];
+      for (let r = 0; r < 4; r++) {
+        pts.push({ x: bestQuad.data32F[r*2], y: bestQuad.data32F[r*2+1] });
+      }
+      // Simple ordering
+      pts.sort((a,b) => a.y - b.y || a.x - b.x);
+      let tl = pts[0], tr = pts[1], br = pts[3], bl = pts[2];
+      if (tl.x > tr.x) { let tmp = tl; tl = tr; tr = tmp; }
+      if (bl.x > br.x) { let tmp = bl; bl = br; br = tmp; }
+
+      const widthTop = Math.hypot(tr.x - tl.x, tr.y - tl.y);
+      const widthBot = Math.hypot(br.x - bl.x, br.y - bl.y);
+      const maxW = Math.max(widthTop, widthBot) | 0;
+      const heightLeft = Math.hypot(bl.x - tl.x, bl.y - tl.y);
+      const heightRight = Math.hypot(br.x - tr.x, br.y - tr.y);
+      const maxH = Math.max(heightLeft, heightRight) | 0;
+
+      // Perspective transform
+      let srcPts = cv.matFromArray(4, 2, cv.CV_32F, [tl.x, tl.y, tr.x, tr.y, br.x, br.y, bl.x, bl.y]);
+      let dstPts = cv.matFromArray(4, 2, cv.CV_32F, [0,0, maxW-1,0, maxW-1,maxH-1, 0,maxH-1]);
+      let transform = cv.getPerspectiveTransform(srcPts, dstPts);
+      let warped = new cv.Mat();
+      cv.warpPerspective(src, warped, transform, new cv.Size(maxW, maxH));
+
+      // Crop margin
+      const marginX = Math.min(Math.floor(maxW * marginPercent / 100), maxW >> 2);
+      const marginY = Math.min(Math.floor(maxH * marginPercent / 100), maxH >> 2);
+
+      let cropped = warped.roi(new cv.Rect(marginX, marginY, maxW - marginX*2, maxH - marginY*2));
+      // Convert cv.Mat back to Uint8Array (RGBA)
+      let croppedData = new Uint8Array(cropped.data.length);
+      croppedData.set(cropped.data);
+      let result = {
+        success: true,
+        width: cropped.cols,
+        height: cropped.rows,
+        data: croppedData
+      };
+
+      // Cleanup
+      src.delete(); gray.delete(); blurred.delete(); edges.delete();
+      contours.delete(); hierarchy.delete(); bestQuad.delete();
+      srcPts.delete(); dstPts.delete(); transform.delete(); warped.delete();
+      // cropped is a ROI view, don't delete it (it shares memory with warped), but warped will be deleted.
+
+      return result;
+    }
+    window.detectAndCropJS = detectAndCropJS;
+  </script>
+
+  <script>
+    // ------------------------------------------------------------
+    // 4.  Stlite mount
     // ------------------------------------------------------------
     stlite.mount(
       {
         requirements: [
           "numpy",
-          "pillow",
-          "pandas",
-          "openpyxl"
+          "pillow"
         ],
         entrypoint: "cropper_app.py",
         files: {
           "cropper_app.py": `
 import streamlit as st
+from PIL import Image
+import js
 import numpy as np
 import io
 import zipfile
-from PIL import Image
-import js           # JavaScript interop (built‑in Stlite)
-import pyodide      # for to_js / to_py
-
-# ------------------------------------------------------------
-#  Load PyMuPDF & wait for opencv.js
-# ------------------------------------------------------------
-def _load_dependencies():
-    try:
-        # 1. PyMuPDF (custom wheel)
-        js.loadPyMuPDFWheel()
-        global fitz
-        import fitz
-        st.write("PyMuPDF loaded.")
-
-        # 2. Wait for opencv.js (already loading from CDN)
-        js.waitForOpenCV()
-        st.write("OpenCV.js ready.")
-        return True
-    except Exception as e:
-        st.error(f"Failed to load dependencies: {e}")
-        st.stop()
-
-_load_dependencies()
 
 st.set_page_config(page_title="PDF Auto Crop", layout="wide")
 st.title("📄 Auto Crop PDF Pages (remove thin border)")
-st.caption("Detects the rectangular border, corrects perspective, and crops away the border with a small margin.")
+st.caption("Uses pdf.js + opencv.js for offline processing.")
 
-# ------------------------------------------------------------
-#  Helper: PDF → PIL images (PyMuPDF)
-# ------------------------------------------------------------
-def pdf_to_images(pdf_bytes, dpi=300):
-    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-    images = []
-    zoom = dpi / 72.0
-    mat = fitz.Matrix(zoom, zoom)
-    for page in doc:
-        pix = page.get_pixmap(matrix=mat)
-        if pix.n == 3:   # RGB
-            img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-        elif pix.n == 4: # RGBA → RGB
-            img = Image.frombytes("RGBA", [pix.width, pix.height], pix.samples).convert("RGB")
-        else:            # grayscale
-            img = Image.frombytes("L", [pix.width, pix.height], pix.samples).convert("RGB")
-        images.append(img)
-    doc.close()
-    return images
+# ---------- ensure JS libraries are ready ----------
+def _init():
+    js.waitForOpenCV()   # opencv.js
+    st.write("OpenCV.js ready")
 
-# ------------------------------------------------------------
-#  Border detection & crop using opencv.js
-# ------------------------------------------------------------
-def detect_and_crop(image_rgb, margin_percent=2.0):
-    """Use opencv.js for border detection + perspective warp.
-       image_rgb: PIL Image in RGB.
-       Returns (cropped_pil, success_flag).
-    """
-    # Convert PIL → numpy (H, W, 3)
-    np_rgb = np.array(image_rgb)
-    h, w, _ = np_rgb.shape
+_init()
 
-    # ---- step 1: convert to OpenCV Mat (4‑channel RGBA? We'll use CV_8UC3) ----
-    # Flatten to 1D list
-    data = np_rgb.flatten().tolist()   # plain list of numbers
-    src_mat = js.cv.matFromArray(h, w, js.cv.CV_8UC3, pyodide.to_js(data))
+# ---------- helper: convert RGBA data URL to PIL ----------
+def rgba_to_pil(width, height, data_js):
+    """Convert a JS Uint8Array (RGBA) to a PIL Image (RGB)."""
+    # data_js is a JS Uint8Array; convert to Python bytes
+    buf = data_js.to_py()
+    # Convert RGBA → RGB
+    img = Image.frombytes("RGBA", (width, height), buf).convert("RGB")
+    return img
 
-    # ---- step 2: convert to grayscale ----
-    gray = js.cv.Mat()
-    js.cv.cvtColor(src_mat, gray, js.cv.COLOR_RGB2GRAY)
-
-    # ---- step 3: edge detection ----
-    blurred = js.cv.Mat()
-    # Use GaussianBlur (bilateral not available? We'll use Gaussian + Canny)
-    js.cv.GaussianBlur(gray, blurred, js.cv.Size(5, 5), 0)
-    edges = js.cv.Mat()
-    js.cv.Canny(blurred, edges, 30, 100)
-
-    # ---- step 4: find contours ----
-    contours = js.cv.MatVector()
-    hierarchy = js.cv.Mat()
-    js.cv.findContours(edges, contours, hierarchy, js.cv.RETR_EXTERNAL, js.cv.CHAIN_APPROX_SIMPLE)
-
-    if contours.size() == 0:
-        # cleanup and return original
-        src_mat.delete(); gray.delete(); blurred.delete(); edges.delete();
-        contours.delete(); hierarchy.delete()
-        return image_rgb, False
-
-    # ---- step 5: find largest quadrilateral ----
-    best_quad = None
-    max_area = 0.0
-    img_area = h * w
-
-    for i in range(contours.size()):
-        cnt = contours.get(i)
-        area = js.cv.contourArea(cnt)
-        if area < 0.3 * img_area:
-            continue
-        # approximate polygon
-        peri = js.cv.arcLength(cnt, True)
-        approx = js.cv.Mat()
-        js.cv.approxPolyDP(cnt, approx, 0.02 * peri, True)
-        if approx.rows == 4 and area > max_area:
-            max_area = area
-            if best_quad is not None:
-                best_quad.delete()
-            best_quad = approx.clone()
-        approx.delete()
-
-    if best_quad is None:
-        # cleanup
-        src_mat.delete(); gray.delete(); blurred.delete(); edges.delete();
-        contours.delete(); hierarchy.delete()
-        return image_rgb, False
-
-    # ---- step 6: order points (top‑left, top‑right, bottom‑right, bottom‑left) ----
-    pts = []
-    for r in range(4):
-        pts.append([best_quad.data32F[r*2], best_quad.data32F[r*2+1]])
-    pts = np.array(pts, dtype=np.float32)
-    # simple order
-    s = pts.sum(axis=1)
-    tl = pts[np.argmin(s)]
-    br = pts[np.argmax(s)]
-    diff = np.diff(pts, axis=1)
-    tr = pts[np.argmin(diff)]
-    bl = pts[np.argmax(diff)]
-
-    width_top = np.linalg.norm(tr - tl)
-    width_bot = np.linalg.norm(br - bl)
-    max_w = int(max(width_top, width_bot))
-    height_left = np.linalg.norm(bl - tl)
-    height_right = np.linalg.norm(br - tr)
-    max_h = int(max(height_left, height_right))
-
-    # Build destination matrices
-    src_pts = js.cv.matFromArray(4, 2, js.cv.CV_32F, pyodide.to_js(
-        [tl[0], tl[1], tr[0], tr[1], br[0], br[1], bl[0], bl[1]]
-    ))
-    dst_pts = js.cv.matFromArray(4, 2, js.cv.CV_32F, pyodide.to_js(
-        [0, 0, max_w-1, 0, max_w-1, max_h-1, 0, max_h-1]
-    ))
-
-    transform = js.cv.getPerspectiveTransform(src_pts, dst_pts)
-    warped = js.cv.Mat()
-    js.cv.warpPerspective(src_mat, warped, transform, js.cv.Size(max_w, max_h))
-
-    # ---- step 7: crop margin ----
-    margin_x = int(max_w * margin_percent / 100)
-    margin_y = int(max_h * margin_percent / 100)
-    margin_x = min(margin_x, max_w // 4)
-    margin_y = min(margin_y, max_h // 4)
-
-    # Convert warped Mat to numpy
-    warped_data = warped.data.to_py()   # returns memoryview, convert to bytes
-    warped_array = np.frombuffer(warped_data, dtype=np.uint8).reshape(max_h, max_w, 3)
-    # Crop
-    cropped_array = warped_array[margin_y:max_h-margin_y, margin_x:max_w-margin_x]
-
-    # ---- step 8: clean up all Mats ----
-    src_mat.delete(); gray.delete(); blurred.delete(); edges.delete();
-    contours.delete(); hierarchy.delete(); best_quad.delete()
-    src_pts.delete(); dst_pts.delete(); transform.delete(); warped.delete()
-
-    # Return PIL image
-    cropped_pil = Image.fromarray(cropped_array)
-    return cropped_pil, True
-
-# ------------------------------------------------------------
-#  UI (same as before)
-# ------------------------------------------------------------
-st.subheader("1. Upload PDF")
+# ---------- main UI ----------
+margin = st.slider("Crop margin (%)", 0.0, 10.0, 2.0, 0.5)
 pdf_file = st.file_uploader("Choose a PDF file", type="pdf")
-margin = st.slider("Crop margin (%)", 0.0, 10.0, 2.0, 0.5,
-                   help="How much to shrink the detected area inside the border to remove the line itself.")
 
 if pdf_file:
     pdf_bytes = pdf_file.read()
+
+    # Render pages with pdf.js → returns JS array of {width, height, data}
     try:
-        pages = pdf_to_images(pdf_bytes, dpi=300)
+        js_pages = js.renderPDFPages(pdf_bytes)
     except Exception as e:
-        st.error(f"Failed to process PDF: {e}")
+        st.error(f"PDF rendering failed: {e}")
         st.stop()
 
-    st.success(f"Loaded {len(pages)} page(s).")
-    max_pages = st.number_input("Pages to process", 1, len(pages), len(pages))
-    pages = pages[:max_pages]
+    n_pages = len(js_pages)
+    st.success(f"Loaded {n_pages} page(s).")
+    # Convert to PIL images (for preview and processing)
+    pil_pages = []
+    for i in range(n_pages):
+        page_obj = js_pages[i]
+        pil_pages.append(rgba_to_pil(page_obj.width, page_obj.height, page_obj.data))
 
+    max_pages = st.number_input("Pages to process", 1, n_pages, n_pages)
+    pil_pages = pil_pages[:max_pages]
+
+    # Process each page
     cropped_pages = []
     status = []
-    for i, page_img in enumerate(pages):
+    for i, pil_img in enumerate(pil_pages):
         st.write(f"Processing page {i+1}...")
-        cropped, ok = detect_and_crop(page_img, margin)
-        if ok:
-            cropped_pages.append(cropped)
+        # Convert to RGBA bytes for opencv.js (we'll pass width, height, data)
+        np_rgba = np.array(pil_img.convert("RGBA"))
+        # Flatten to list, make JS Uint8Array
+        data_js = js.Uint8Array.new(np_rgba.flatten().tolist())
+        result = js.detectAndCropJS(pil_img.width, pil_img.height, data_js, margin)
+        if result.success:
+            cropped_pil = rgba_to_pil(result.width, result.height, result.data)
+            cropped_pages.append(cropped_pil)
             status.append("✓ cropped")
         else:
-            cropped_pages.append(page_img)
+            cropped_pages.append(pil_img)
             status.append("⚠ border not found – kept original")
 
+    # Preview
     st.subheader("Preview (first page)")
     col1, col2 = st.columns(2)
     with col1:
-        st.image(pages[0], caption="Original", width='stretch')
+        st.image(pil_pages[0], caption="Original", width='stretch')
     with col2:
         st.image(cropped_pages[0], caption=f"Cropped ({status[0]})", width='stretch')
 
+    # Downloads
     st.subheader("Download Results")
     zip_buf = io.BytesIO()
     with zipfile.ZipFile(zip_buf, "w") as zf:
@@ -293,8 +289,8 @@ if pdf_file:
 
     pdf_buf = io.BytesIO()
     if cropped_pages:
-        rgb_pages = [img.convert("RGB") for img in cropped_pages]
-        rgb_pages[0].save(pdf_buf, "PDF", save_all=True, append_images=rgb_pages[1:])
+        rgb_images = [img.convert("RGB") for img in cropped_pages]
+        rgb_images[0].save(pdf_buf, "PDF", save_all=True, append_images=rgb_images[1:])
         pdf_buf.seek(0)
         st.download_button("Download cropped pages (PDF)", pdf_buf,
                            "cropped_pages.pdf", "application/pdf")
