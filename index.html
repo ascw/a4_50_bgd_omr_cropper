@@ -1,285 +1,993 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>PDF Border Cropper (Diagnostic)</title>
-  <style>
-    body { font-family: sans-serif; margin: 2rem; }
-    .preview { display: flex; gap: 1rem; flex-wrap: wrap; }
-    .preview img { max-width: 45%; border: 1px solid #ccc; }
-    button { margin: 0.5rem 0; padding: 0.5rem 1rem; }
-    #status { color: blue; margin: 1rem 0; }
-    .error { color: red; font-weight: bold; }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Auto Crop - Border Removal</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Work+Sans:wght@400;500;600&display=swap');
+        
+        :root {
+            --bg-primary: #0a0e14;
+            --bg-secondary: #151b24;
+            --bg-tertiary: #1f2937;
+            --accent: #00e5ff;
+            --accent-dim: #00a8cc;
+            --text-primary: #e8eef5;
+            --text-secondary: #9ba6b8;
+            --border: #2d3748;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+        }
+        
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: 'Work Sans', sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+        
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-image: 
+                linear-gradient(var(--border) 1px, transparent 1px),
+                linear-gradient(90deg, var(--border) 1px, transparent 1px);
+            background-size: 50px 50px;
+            opacity: 0.15;
+            pointer-events: none;
+            z-index: -1;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        
+        header {
+            text-align: center;
+            margin-bottom: 3rem;
+            padding-top: 2rem;
+            animation: slideDown 0.6s ease-out;
+        }
+        
+        h1 {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 2.5rem;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            margin-bottom: 0.5rem;
+            background: linear-gradient(135deg, var(--accent) 0%, var(--text-primary) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .subtitle {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+        }
+        
+        .card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+            position: relative;
+            overflow: hidden;
+            animation: fadeIn 0.6s ease-out;
+            animation-fill-mode: both;
+        }
+        
+        .card::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            height: 2px;
+            background: linear-gradient(90deg, var(--accent), transparent);
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        
+        .card:hover::before { opacity: 1; }
+        
+        .card:nth-child(1) { animation-delay: 0.1s; }
+        .card:nth-child(2) { animation-delay: 0.2s; }
+        .card:nth-child(3) { animation-delay: 0.3s; }
+        
+        .card-title {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.875rem;
+            font-weight: 600;
+            color: var(--accent);
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            margin-bottom: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .card-title::before {
+            content: '';
+            width: 4px; height: 16px;
+            background: var(--accent);
+            display: inline-block;
+        }
+        
+        .upload-zone {
+            border: 2px dashed var(--border);
+            border-radius: 8px;
+            padding: 3rem;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+            position: relative;
+            background: var(--bg-tertiary);
+        }
+        
+        .upload-zone:hover {
+            border-color: var(--accent);
+            background: rgba(0, 229, 255, 0.05);
+        }
+        
+        .upload-zone.dragover {
+            border-color: var(--accent);
+            background: rgba(0, 229, 255, 0.1);
+            transform: scale(1.02);
+        }
+        
+        .upload-icon { font-size: 3rem; margin-bottom: 1rem; opacity: 0.5; }
+        
+        input[type="file"] { display: none; }
+        
+        .controls {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.5rem;
+            margin-top: 1.5rem;
+        }
+        
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+        
+        label {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+        }
+        
+        input[type="range"] {
+            width: 100%;
+            height: 6px;
+            border-radius: 3px;
+            background: var(--bg-tertiary);
+            outline: none;
+            -webkit-appearance: none;
+        }
+        
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 18px; height: 18px;
+            border-radius: 50%;
+            background: var(--accent);
+            cursor: pointer;
+            box-shadow: 0 0 0 4px rgba(0, 229, 255, 0.2);
+            transition: all 0.2s;
+        }
+        
+        input[type="range"]::-webkit-slider-thumb:hover {
+            background: var(--text-primary);
+            box-shadow: 0 0 0 6px rgba(0, 229, 255, 0.3);
+        }
+        
+        input[type="number"] {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 0.75rem;
+            color: var(--text-primary);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.875rem;
+        }
+        
+        input[type="number"]:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+        
+        button {
+            background: var(--accent);
+            color: var(--bg-primary);
+            border: none;
+            border-radius: 6px;
+            padding: 0.875rem 1.75rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.875rem;
+            font-weight: 600;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            cursor: pointer;
+            transition: all 0.2s;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        button::before {
+            content: '';
+            position: absolute;
+            top: 50%; left: 50%;
+            width: 0; height: 0;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.3);
+            transform: translate(-50%, -50%);
+            transition: width 0.4s, height 0.4s;
+        }
+        
+        button:hover::before { width: 300px; height: 300px; }
+        
+        button:hover {
+            background: var(--text-primary);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 229, 255, 0.3);
+        }
+        
+        button:disabled {
+            background: var(--bg-tertiary);
+            color: var(--text-secondary);
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .preview-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2rem;
+            margin-top: 2rem;
+        }
+        
+        .preview-panel {
+            background: var(--bg-tertiary);
+            border-radius: 8px;
+            padding: 1.5rem;
+            border: 1px solid var(--border);
+        }
+        
+        .preview-label {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .preview-canvas-container {
+            background: var(--bg-primary);
+            border-radius: 6px;
+            padding: 1rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 400px;
+            border: 1px solid var(--border);
+        }
+        
+        canvas { max-width: 100%; height: auto; border-radius: 4px; }
+        
+        .status {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem;
+            letter-spacing: 0.05em;
+            margin-bottom: 1rem;
+        }
+        
+        .status.success {
+            background: rgba(16, 185, 129, 0.1);
+            color: var(--success);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+        }
+        
+        .status.warning {
+            background: rgba(245, 158, 11, 0.1);
+            color: var(--warning);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+        }
+        
+        .progress-bar {
+            width: 100%;
+            height: 4px;
+            background: var(--bg-tertiary);
+            border-radius: 2px;
+            overflow: hidden;
+            margin: 1rem 0;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent), var(--accent-dim));
+            width: 0%;
+            transition: width 0.3s;
+            position: relative;
+        }
+        
+        .progress-fill::after {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; bottom: 0; right: 0;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+            animation: shimmer 1.5s infinite;
+        }
+        
+        .download-section {
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+        
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+        
+        .stat-card {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1.5rem;
+            text-align: center;
+        }
+        
+        .stat-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 2rem;
+            font-weight: 700;
+            color: var(--accent);
+            margin-bottom: 0.5rem;
+        }
+        
+        .stat-label {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+        }
+        
+        #debugImages { display:flex; flex-wrap:wrap; gap:10px; margin:1rem 0; }
+        
+        #logPanel {
+            background: #0d1117;
+            color: #c9d1d9;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem;
+            padding: 1rem;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            height: 300px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            margin-top: 1rem;
+        }
+        
+        @keyframes slideDown {
+            from { opacity: 0; transform: translateY(-30px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        @keyframes shimmer {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(100%); }
+        }
+        
+        .loading-spinner {
+            display: inline-block;
+            width: 16px; height: 16px;
+            border: 2px solid var(--border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        
+        @keyframes spin { to { transform: rotate(360deg); } }
+        
+        @media (max-width: 768px) {
+            .preview-grid { grid-template-columns: 1fr; }
+            .controls { grid-template-columns: 1fr; }
+            h1 { font-size: 2rem; }
+        }
+    </style>
 </head>
 <body>
-  <h1>📄 Auto Crop PDF Pages (Diagnostic)</h1>
-  <p>Watch the status messages below. Open the console (F12) as well.</p>
+    <div class="container">
+        <header>
+            <h1>📄 PDF Auto Crop</h1>
+            <p class="subtitle">Border Detection & Removal System</p>
+        </header>
+        
+        <div class="card">
+            <div class="card-title">Upload PDF</div>
+            <div class="upload-zone" id="uploadZone">
+                <div class="upload-icon">📁</div>
+                <p style="margin-bottom: 0.5rem; font-weight: 500;">Drop PDF file here or click to browse</p>
+                <p style="font-size: 0.875rem; color: var(--text-secondary);">Supports multi-page PDFs</p>
+                <input type="file" id="fileInput" accept=".pdf">
+            </div>
+        </div>
+        
+        <div class="card" id="controlsCard" style="display: none;">
+            <div class="card-title">Processing Controls</div>
+            <div class="controls">
+                <div class="control-group">
+                    <label for="marginSlider">Crop Margin: <span id="marginValue">2.0</span>%</label>
+                    <input type="range" id="marginSlider" min="0" max="10" step="0.5" value="2">
+                </div>
+                <div class="control-group">
+                    <label for="maxPages">Max Pages to Process</label>
+                    <input type="number" id="maxPages" min="1" value="1">
+                </div>
+                <div class="control-group">
+                    <label for="scaleSlider">Render Scale: <span id="scaleValue">1.5</span></label>
+                    <input type="range" id="scaleSlider" min="0.5" max="3.0" step="0.1" value="1.5">
+                </div>
+                <div class="control-group">
+                    <label for="delaySlider">Inter‑page delay (ms): <span id="delayValue">500</span></label>
+                    <input type="range" id="delaySlider" min="0" max="2000" step="100" value="500">
+                </div>
+            </div>
+            <button id="processBtn" style="margin-top: 1.5rem;" disabled>
+                <span>Process PDF</span>
+            </button>
+            <div class="progress-bar" id="progressBar" style="display: none;">
+                <div class="progress-fill" id="progressFill"></div>
+            </div>
+        </div>
+        
+        <div class="card" id="statsCard" style="display: none;">
+            <div class="card-title">Processing Results</div>
+            <div class="stats">
+                <div class="stat-card">
+                    <div class="stat-value" id="totalPages">0</div>
+                    <div class="stat-label">Total Pages</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="croppedPages">0</div>
+                    <div class="stat-label">Cropped</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="failedPages">0</div>
+                    <div class="stat-label">Fallback</div>
+                </div>
+            </div>
+        </div>
+        
+        <div id="debugImages" style="display:flex; flex-wrap:wrap; gap:10px; margin:1rem 0;"></div>
 
-  <div>
-    <label for="marginSlider">Crop margin (%): <span id="marginValue">2</span></label>
-    <input type="range" id="marginSlider" min="0" max="10" step="0.5" value="2" />
-  </div>
+        <div class="card" id="previewCard" style="display: none;">
+            <div class="card-title">Preview (Page 1)</div>
+            <div class="preview-grid">
+                <div class="preview-panel">
+                    <div class="preview-label">Original</div>
+                    <div class="preview-canvas-container">
+                        <canvas id="originalCanvas"></canvas>
+                    </div>
+                </div>
+                <div class="preview-panel">
+                    <div class="preview-label">
+                        <span>Cropped</span>
+                        <span id="cropStatus"></span>
+                    </div>
+                    <div class="preview-canvas-container">
+                        <canvas id="croppedCanvas"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <canvas id="workerCanvas" style="display: none;"></canvas>
 
-  <input type="file" id="pdfUpload" accept=".pdf" />
-  <br/>
-  <button id="processBtn" disabled>Process PDF</button>
+        <div class="card" id="downloadCard" style="display: none;">
+            <div class="card-title">Download Results</div>
+            <div class="download-section">
+                <button id="downloadZipBtn">
+                    <span>Download ZIP (Images)</span>
+                </button>
+                <button id="downloadPdfBtn">
+                    <span>Download PDF</span>
+                </button>
+            </div>
+        </div>
 
-  <div id="status">
-    <span id="statusPdfjs">⏳ pdf.js: loading…</span><br/>
-    <span id="statusOpencv">⏳ opencv.js: loading…</span><br/>
-    <span id="statusGlobal">Waiting for PDF upload…</span>
-  </div>
-
-  <div id="preview" class="preview"></div>
-  <div id="downloads" style="margin-top:1rem;"></div>
-
-  <!-- Libraries -->
-  <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"
-          onload="document.getElementById('statusPdfjs').innerHTML='✅ pdf.js loaded'"
-          onerror="document.getElementById('statusPdfjs').innerHTML='❌ pdf.js failed'"></script>
-  <script async src="https://cdn.jsdelivr.net/npm/opencv.js@4.10.0" onload="onOpenCVScriptLoad()"></script>
-
-  <script>
-    // ---------- Global state ----------
-    let openCVReady = false;
-    let pdfBytes = null;
-
-    // pdf.js worker
-    if (typeof pdfjsLib !== 'undefined') {
-      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
-      console.log('pdfjsLib configured.');
-    } else {
-      document.getElementById('statusPdfjs').innerHTML = '❌ pdfjsLib not defined after script load';
-    }
-
-    // When opencv.js script tag loads, set up runtime callback
-    function onOpenCVScriptLoad() {
-      console.log('opencv.js script loaded, waiting for runtime...');
-      if (typeof cv !== 'undefined') {
-        cv['onRuntimeInitialized'] = () => {
-          openCVReady = true;
-          document.getElementById('statusOpencv').innerHTML = '✅ opencv.js ready';
-          console.log('OpenCV runtime ready.');
-        };
-        // If it's already initialized (unlikely), handle that
-        if (cv.Mat) {
-          openCVReady = true;
-          document.getElementById('statusOpencv').innerHTML = '✅ opencv.js ready (already)';
+        <div class="card">
+            <div class="card-title">⚙️ Debug Log</div>
+            <div id="logPanel"></div>
+            <button id="clearLogBtn" style="margin-top:0.5rem; font-size:0.75rem;">Clear Log</button>
+        </div>
+    </div>
+    
+    <!-- Libraries -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://docs.opencv.org/4.10.0/opencv.js"></script>
+    
+    <script>
+        // ─── Wait for OpenCV.js to be fully ready ─────
+        async function waitForOpenCV() {
+            return new Promise(resolve => {
+                if (cv && cv.getBuildInformation) {
+                    resolve();
+                } else {
+                    cv['onRuntimeInitialized'] = resolve;
+                }
+            });
         }
-      } else {
-        document.getElementById('statusOpencv').innerHTML = '❌ cv object missing';
-      }
-    }
 
-    // UI elements
-    const upload = document.getElementById('pdfUpload');
-    const processBtn = document.getElementById('processBtn');
-    const marginSlider = document.getElementById('marginSlider');
-    const marginValue = document.getElementById('marginValue');
-    const statusGlobal = document.getElementById('statusGlobal');
-    const previewDiv = document.getElementById('preview');
-    const downloadsDiv = document.getElementById('downloads');
-
-    marginSlider.oninput = () => marginValue.textContent = marginSlider.value;
-
-    upload.addEventListener('change', (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-      statusGlobal.innerHTML = 'Reading PDF file…';
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        pdfBytes = new Uint8Array(ev.target.result);
-        statusGlobal.innerHTML = 'PDF loaded. Checking libraries…';
-        checkReady();
-      };
-      reader.readAsArrayBuffer(file);
-    });
-
-    function checkReady() {
-      const pdfOk = typeof pdfjsLib !== 'undefined';
-      const cvOk = openCVReady;
-      if (pdfOk && cvOk) {
-        processBtn.disabled = false;
-        statusGlobal.innerHTML = '✅ Ready to process.';
-      } else {
-        processBtn.disabled = true;
-        let missing = [];
-        if (!pdfOk) missing.push('pdf.js');
-        if (!cvOk) missing.push('opencv.js');
-        statusGlobal.innerHTML = `⏳ Waiting for: ${missing.join(', ')}`;
-        // Retry after 1 second
-        setTimeout(checkReady, 1000);
-      }
-    }
-
-    // ---------- Core functions (same as before) ----------
-    async function renderPages(pdfBytes) {
-      console.log('Starting PDF rendering…');
-      const loadingTask = pdfjsLib.getDocument({ data: pdfBytes });
-      const pdf = await loadingTask.promise;
-      const pages = [];
-      const scale = 300 / 72;
-      for (let i = 1; i <= pdf.numPages; i++) {
-        console.log(`Rendering page ${i}/${pdf.numPages}…`);
-        const page = await pdf.getPage(i);
-        const viewport = page.getViewport({ scale });
-        const canvas = document.createElement('canvas');
-        canvas.width = viewport.width;
-        canvas.height = viewport.height;
-        const ctx = canvas.getContext('2d');
-        await page.render({ canvasContext: ctx, viewport }).promise;
-        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        pages.push({
-          width: canvas.width,
-          height: canvas.height,
-          data: imageData.data
+        // ─── Initialize PDF.js ────────────────────────
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        
+        let pdfDocument = null;
+        let processedCroppedBlobs = [];
+        let originalPages = [];
+        
+        // ─── UI Elements ───────────────────────────────
+        const uploadZone = document.getElementById('uploadZone');
+        const fileInput = document.getElementById('fileInput');
+        const controlsCard = document.getElementById('controlsCard');
+        const processBtn = document.getElementById('processBtn');
+        const marginSlider = document.getElementById('marginSlider');
+        const marginValue = document.getElementById('marginValue');
+        const maxPagesInput = document.getElementById('maxPages');
+        const progressBar = document.getElementById('progressBar');
+        const progressFill = document.getElementById('progressFill');
+        const statsCard = document.getElementById('statsCard');
+        const previewCard = document.getElementById('previewCard');
+        const downloadCard = document.getElementById('downloadCard');
+        const scaleSlider = document.getElementById('scaleSlider');
+        const scaleValue = document.getElementById('scaleValue');
+        const delaySlider = document.getElementById('delaySlider');
+        const delayValue = document.getElementById('delayValue');
+        const originalCanvas = document.getElementById('originalCanvas');
+        const croppedCanvas = document.getElementById('croppedCanvas');
+        
+        // ─── Logging ──────────────────────────────────
+        const logPanel = document.getElementById('logPanel');
+        function log(msg) {
+            const time = new Date().toLocaleTimeString();
+            logPanel.textContent += `[${time}] ${msg}\n`;
+            logPanel.scrollTop = logPanel.scrollHeight;
+        }
+        document.getElementById('clearLogBtn').addEventListener('click', () => { logPanel.textContent = ''; });
+        
+        // ─── Upload zone interactions ──────────────────
+        uploadZone.addEventListener('click', () => fileInput.click());
+        uploadZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadZone.classList.add('dragover');
         });
-      }
-      console.log('PDF rendering complete.');
-      return pages;
-    }
-
-    async function detectAndCrop(width, height, imageData, marginPercent) {
-      console.log('Starting border detection…');
-      let src = cv.matFromArray(height, width, cv.CV_8UC4, imageData);
-      let gray = new cv.Mat(); cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
-      let blurred = new cv.Mat(); cv.GaussianBlur(gray, blurred, new cv.Size(5,5), 0);
-      let edges = new cv.Mat(); cv.Canny(blurred, edges, 30, 100);
-      let contours = new cv.MatVector(); let hierarchy = new cv.Mat();
-      cv.findContours(edges, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
-
-      let success = false;
-      let resultWidth = width, resultHeight = height;
-      let resultData = imageData;
-
-      if (contours.size() > 0) {
-        let bestQuad = null, maxArea = 0;
-        const imgArea = width * height;
-        for (let i = 0; i < contours.size(); i++) {
-          let cnt = contours.get(i);
-          let area = cv.contourArea(cnt);
-          if (area < 0.3 * imgArea) continue;
-          let peri = cv.arcLength(cnt, true);
-          let approx = new cv.Mat();
-          cv.approxPolyDP(cnt, approx, 0.02 * peri, true);
-          if (approx.rows == 4 && area > maxArea) {
-            maxArea = area;
-            if (bestQuad) bestQuad.delete();
-            bestQuad = approx.clone();
-          }
-          approx.delete();
+        uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('dragover'));
+        uploadZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadZone.classList.remove('dragover');
+            const file = e.dataTransfer.files[0];
+            if (file && file.type === 'application/pdf') handlePdfUpload(file);
+        });
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) handlePdfUpload(file);
+        });
+        
+        marginSlider.addEventListener('input', (e) => marginValue.textContent = e.target.value);
+        scaleSlider.addEventListener('input', (e) => scaleValue.textContent = e.target.value);
+        delaySlider.addEventListener('input', (e) => delayValue.textContent = e.target.value);
+        
+        // ─── Enable process button only after OpenCV is ready ──
+        (async function init() {
+            await waitForOpenCV();
+            processBtn.disabled = false;
+            log('OpenCV ready.');
+        })();
+        
+        processBtn.addEventListener('click', processPdf);
+        
+        // ─── Handle uploaded PDF ──────────────────────
+        async function handlePdfUpload(file) {
+            const arrayBuffer = await file.arrayBuffer();
+            pdfDocument = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+            const numPages = pdfDocument.numPages;
+            maxPagesInput.max = numPages;
+            maxPagesInput.value = numPages;
+            controlsCard.style.display = 'block';
+            log(`Loaded ${numPages} page(s).`);
+            uploadZone.innerHTML = `
+                <div class="status success">
+                    <span>✓</span>
+                    <span>Loaded ${numPages} page(s) - Ready to process</span>
+                </div>
+            `;
         }
-        if (bestQuad) {
-          let pts = [];
-          for (let r=0; r<4; r++) pts.push({x:bestQuad.data32F[r*2], y:bestQuad.data32F[r*2+1]});
-          pts.sort((a,b)=> a.y - b.y || a.x - b.x);
-          let tl=pts[0], tr=pts[1], br=pts[3], bl=pts[2];
-          if (tl.x>tr.x) [tl,tr]=[tr,tl];
-          if (bl.x>br.x) [bl,br]=[br,bl];
-          const maxW = Math.max(Math.hypot(tr.x-tl.x, tr.y-tl.y), Math.hypot(br.x-bl.x, br.y-bl.y))|0;
-          const maxH = Math.max(Math.hypot(bl.x-tl.x, bl.y-tl.y), Math.hypot(br.x-tr.x, br.y-tr.y))|0;
-          let srcPts = cv.matFromArray(4,2,cv.CV_32F, [tl.x,tl.y, tr.x,tr.y, br.x,br.y, bl.x,bl.y]);
-          let dstPts = cv.matFromArray(4,2,cv.CV_32F, [0,0, maxW-1,0, maxW-1,maxH-1, 0,maxH-1]);
-          let transform = cv.getPerspectiveTransform(srcPts, dstPts);
-          let warped = new cv.Mat(); cv.warpPerspective(src, warped, transform, new cv.Size(maxW,maxH));
-          const mX = Math.min(Math.floor(maxW*marginPercent/100), maxW>>2);
-          const mY = Math.min(Math.floor(maxH*marginPercent/100), maxH>>2);
-          let roi = new cv.Rect(mX, mY, maxW-mX*2, maxH-mY*2);
-          let cropped = warped.roi(roi).clone();
-          resultData = new Uint8Array(cropped.data);
-          resultWidth = cropped.cols; resultHeight = cropped.rows;
-          success = true;
-          srcPts.delete(); dstPts.delete(); transform.delete(); warped.delete(); cropped.delete();
-          bestQuad.delete();
+        
+        const delay = ms => new Promise(res => setTimeout(res, ms));
+        const microDelay = () => delay(0);
+        
+        // ─── Main processing loop ─────────────────────
+        async function processPdf() {
+            if (!pdfDocument) return;
+            
+            processBtn.disabled = true;
+            processBtn.innerHTML = '<span class="loading-spinner"></span><span style="margin-left:8px">Processing...</span>';
+            progressBar.style.display = 'block';
+            progressFill.style.width = '0%';
+            
+            const marginPercent = parseFloat(marginSlider.value);
+            const maxPages = parseInt(maxPagesInput.value);
+            const numPages = Math.min(maxPages, pdfDocument.numPages);
+            const scale = parseFloat(scaleSlider.value);
+            const interPageDelay = parseInt(delaySlider.value);
+            
+            log(`Processing: ${numPages} pages, scale=${scale}, margin=${marginPercent}%, delay=${interPageDelay}ms`);
+            
+            const workerCanvas = document.getElementById('workerCanvas');
+            const ctx = workerCanvas.getContext('2d', { willReadFrequently: true });
+            
+            processedCroppedBlobs = [];
+            originalPages = [];
+            let successCount = 0, failCount = 0;
+            
+            for (let i = 1; i <= numPages; i++) {
+                log(`\n--- Page ${i}/${numPages} ---`);
+                try {
+                    const page = await pdfDocument.getPage(i);
+                    const viewport = page.getViewport({ scale });
+                    
+                    workerCanvas.width = 0; workerCanvas.height = 0;
+                    workerCanvas.width = viewport.width;
+                    workerCanvas.height = viewport.height;
+                    ctx.clearRect(0, 0, viewport.width, viewport.height);
+                    
+                    await page.render({ canvasContext: ctx, viewport }).promise;
+                    log(`Rendered (${viewport.width}x${viewport.height})`);
+                    
+                    if (i === 1) {
+                        const origCopy = document.createElement('canvas');
+                        origCopy.width = workerCanvas.width;
+                        origCopy.height = workerCanvas.height;
+                        origCopy.getContext('2d').drawImage(workerCanvas, 0, 0);
+                        originalPages.push(origCopy);
+                    }
+                    
+                    await microDelay();
+                    
+                    const croppedCanvasOut = await quadrilateralCrop(workerCanvas, marginPercent, i);
+                    if (croppedCanvasOut) {
+                        successCount++;
+                        const blob = await new Promise(res => croppedCanvasOut.toBlob(res, 'image/jpeg', 0.92));
+                        processedCroppedBlobs.push(blob);
+                        croppedCanvasOut.width = 0; croppedCanvasOut.height = 0;
+                        log(`Cropped blob: ${blob.size} bytes`);
+                    } else {
+                        failCount++;
+                        const blob = await new Promise(res => workerCanvas.toBlob(res, 'image/jpeg', 0.92));
+                        processedCroppedBlobs.push(blob);
+                        log(`Fallback blob: ${blob.size} bytes`);
+                    }
+                    
+                    page.cleanup();
+                    workerCanvas.width = 0; workerCanvas.height = 0;
+                    progressFill.style.width = `${(i/numPages)*100}%`;
+                    await delay(interPageDelay);
+                    await microDelay();
+                } catch (e) {
+                    log(`ERROR: ${e.message || e} ${e.stack}`);
+                    failCount++;
+                    try {
+                        if (workerCanvas.width > 0 && workerCanvas.height > 0) {
+                            const blob = await new Promise(res => workerCanvas.toBlob(res, 'image/jpeg', 0.92));
+                            processedCroppedBlobs.push(blob);
+                        }
+                    } catch (e2) {}
+                    workerCanvas.width = 0; workerCanvas.height = 0;
+                }
+            }
+            
+            log(`\nDone. Cropped: ${successCount}, Fallback: ${failCount}`);
+            document.getElementById('totalPages').textContent = numPages;
+            document.getElementById('croppedPages').textContent = successCount;
+            document.getElementById('failedPages').textContent = failCount;
+            
+            statsCard.style.display = 'block';
+            downloadCard.style.display = 'block';
+            showPreview();
+            
+            processBtn.disabled = false;
+            processBtn.innerHTML = '<span>Process PDF</span>';
+            progressBar.style.display = 'none';
         }
-      }
-      src.delete(); gray.delete(); blurred.delete(); edges.delete();
-      contours.delete(); hierarchy.delete();
-      console.log('Border detection done, success:', success);
-      return { success, width: resultWidth, height: resultHeight, data: resultData };
-    }
-
-    function rgbaToBlob(width, height, data) {
-      const canvas = document.createElement('canvas');
-      canvas.width = width; canvas.height = height;
-      const ctx = canvas.getContext('2d');
-      const imageData = ctx.createImageData(width, height);
-      imageData.data.set(data);
-      ctx.putImageData(imageData, 0, 0);
-      return new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
-    }
-
-    // ---------- Process button ----------
-    processBtn.addEventListener('click', async () => {
-      if (!pdfBytes) return;
-      processBtn.disabled = true;
-      statusGlobal.innerHTML = 'Processing… (check console for progress)';
-      previewDiv.innerHTML = '';
-      downloadsDiv.innerHTML = '';
-
-      try {
-        const pages = await renderPages(pdfBytes);
-        const margin = parseFloat(marginSlider.value);
-        const croppedImages = [];
-        const statuses = [];
-
-        for (let i = 0; i < pages.length; i++) {
-          statusGlobal.innerHTML = `Processing page ${i+1}/${pages.length}…`;
-          const page = pages[i];
-          const result = await detectAndCrop(page.width, page.height, page.data, margin);
-          if (result.success) {
-            croppedImages.push(result);
-            statuses.push('✓ cropped');
-          } else {
-            croppedImages.push(page);
-            statuses.push('⚠ no border');
-          }
+        
+        function showPreview() {
+            if (originalPages.length && processedCroppedBlobs.length) {
+                const origCanvas = originalPages[0];
+                const blob = processedCroppedBlobs[0];
+                originalCanvas.width = origCanvas.width;
+                originalCanvas.height = origCanvas.height;
+                originalCanvas.getContext('2d').drawImage(origCanvas, 0, 0);
+                
+                const url = URL.createObjectURL(blob);
+                const img = new Image();
+                img.onload = () => {
+                    croppedCanvas.width = img.naturalWidth;
+                    croppedCanvas.height = img.naturalHeight;
+                    croppedCanvas.getContext('2d').drawImage(img, 0, 0);
+                    URL.revokeObjectURL(url);
+                };
+                img.src = url;
+                previewCard.style.display = 'block';
+            }
         }
-
-        // Preview first page
-        const origBlob = await rgbaToBlob(pages[0].width, pages[0].height, pages[0].data);
-        const cropBlob = await rgbaToBlob(croppedImages[0].width, croppedImages[0].height, croppedImages[0].data);
-        previewDiv.innerHTML = `
-          <div><strong>Original</strong><br><img src="${URL.createObjectURL(origBlob)}" /></div>
-          <div><strong>Cropped (${statuses[0]})</strong><br><img src="${URL.createObjectURL(cropBlob)}" /></div>
-        `;
-
-        // Downloads
-        downloadsDiv.innerHTML = '<strong>Downloads:</strong><br/>';
-        const zip = new JSZip();
-        for (let i = 0; i < croppedImages.length; i++) {
-          const blob = await rgbaToBlob(croppedImages[i].width, croppedImages[i].height, croppedImages[i].data);
-          zip.file(`page_${(i+1).toString().padStart(3,'0')}.png`, blob);
+        
+        // ─── Quadrilateral detection with fallback ─────
+        async function quadrilateralCrop(srcCanvas, marginPercent, pageNum) {
+            const trash = [];
+            try {
+                const src = cv.imread(srcCanvas);
+                trash.push(src);
+                if (src.empty()) {
+                    log(`[Page ${pageNum}] imread empty.`);
+                    return null;
+                }
+                
+                const gray = new cv.Mat(); trash.push(gray);
+                cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+                
+                const edges = new cv.Mat(); trash.push(edges);
+                cv.Canny(gray, edges, 30, 150);
+                
+                const kernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(3,3)); trash.push(kernel);
+                const dilated = new cv.Mat(); trash.push(dilated);
+                cv.dilate(edges, dilated, kernel);
+                
+                const contours = new cv.MatVector(); trash.push(contours);
+                const hierarchy = new cv.Mat(); trash.push(hierarchy);
+                cv.findContours(dilated, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+                
+                let bestQuad = null;
+                let bestQuadArea = 0;
+                
+                for (let i = 0; i < contours.size(); i++) {
+                    const cnt = contours.get(i);
+                    try {
+                        const peri = cv.arcLength(cnt, true);
+                        const approx = new cv.Mat();
+                        cv.approxPolyDP(cnt, approx, 0.02 * peri, true);
+                        if (approx.rows === 4) {
+                            const area = cv.contourArea(approx);
+                            if (area > bestQuadArea) {
+                                bestQuadArea = area;
+                                if (bestQuad) bestQuad.delete();
+                                bestQuad = approx.clone();
+                            }
+                        }
+                        approx.delete();
+                    } finally { cnt.delete(); }
+                }
+                
+                const imageArea = src.cols * src.rows;
+                log(`[Page ${pageNum}] Best quad area: ${bestQuadArea} (${(bestQuadArea/imageArea*100).toFixed(1)}% of image)`);
+                
+                const MIN_QUAD_AREA_RATIO = 0.10;
+                if (!bestQuad || bestQuadArea < imageArea * MIN_QUAD_AREA_RATIO) {
+                    if (bestQuad) bestQuad.delete();
+                    log(`[Page ${pageNum}] Quad too small or missing, using contour fallback.`);
+                    return contourFallbackCrop(src, srcCanvas, marginPercent, pageNum, trash);
+                }
+                
+                const quadPoints = readQuadPoints(bestQuad);
+                bestQuad.delete();
+                const ordered = orderPoints(quadPoints);
+                log(`[Page ${pageNum}] Quad corners: ${JSON.stringify(ordered.map(p => `(${p.x},${p.y})`))}`);
+                
+                const width1 = Math.hypot(ordered[1].x - ordered[0].x, ordered[1].y - ordered[0].y);
+                const width2 = Math.hypot(ordered[2].x - ordered[3].x, ordered[2].y - ordered[3].y);
+                const dstWidth = Math.round(Math.max(width1, width2));
+                const height1 = Math.hypot(ordered[3].x - ordered[0].x, ordered[3].y - ordered[0].y);
+                const height2 = Math.hypot(ordered[2].x - ordered[1].x, ordered[2].y - ordered[1].y);
+                const dstHeight = Math.round(Math.max(height1, height2));
+                
+                const srcPoints = [
+                    ordered[0].x, ordered[0].y,
+                    ordered[1].x, ordered[1].y,
+                    ordered[2].x, ordered[2].y,
+                    ordered[3].x, ordered[3].y
+                ];
+                const dstPoints = [
+                    0, 0,
+                    dstWidth - 1, 0,
+                    dstWidth - 1, dstHeight - 1,
+                    0, dstHeight - 1
+                ];
+                
+                const srcMat = cv.matFromArray(4, 2, cv.CV_32FC1, srcPoints); trash.push(srcMat);
+                const dstMat = cv.matFromArray(4, 2, cv.CV_32FC1, dstPoints); trash.push(dstMat);
+                
+                const M = cv.getPerspectiveTransform(srcMat, dstMat); trash.push(M);
+                
+                const warped = new cv.Mat(); trash.push(warped);
+                cv.warpPerspective(src, warped, M, new cv.Size(dstWidth, dstHeight),
+                                  cv.INTER_LINEAR, cv.BORDER_CONSTANT, new cv.Scalar(255,255,255,255));
+                
+                const mX = Math.floor(dstWidth * marginPercent / 100);
+                const mY = Math.floor(dstHeight * marginPercent / 100);
+                let cropX = Math.max(0, mX);
+                let cropY = Math.max(0, mY);
+                let cropW = dstWidth - 2 * mX;
+                let cropH = dstHeight - 2 * mY;
+                if (cropW <= 0) cropW = 1;
+                if (cropH <= 0) cropH = 1;
+                if (cropX + cropW > dstWidth) cropW = dstWidth - cropX;
+                if (cropY + cropH > dstHeight) cropH = dstHeight - cropY;
+                
+                const outputCanvas = document.createElement('canvas');
+                outputCanvas.width = cropW;
+                outputCanvas.height = cropH;
+                const outCtx = outputCanvas.getContext('2d');
+                
+                const tempCanvas = document.createElement('canvas');
+                tempCanvas.width = dstWidth;
+                tempCanvas.height = dstHeight;
+                cv.imshow(tempCanvas, warped);
+                outCtx.drawImage(tempCanvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+                tempCanvas.width = 0; tempCanvas.height = 0;
+                
+                log(`[Page ${pageNum}] Quad crop successful: ${cropW}x${cropH}`);
+                return outputCanvas;
+                
+            } catch (e) {
+                log(`[Page ${pageNum}] Quad crop error: ${e.message || e} ${e.stack}`);
+                return null;
+            } finally {
+                trash.forEach(m => { try { if (m && typeof m.delete === 'function') m.delete(); } catch(e){} });
+            }
         }
-        const zipBlob = await zip.generateAsync({type:'blob'});
-        const zipUrl = URL.createObjectURL(zipBlob);
-        downloadsDiv.innerHTML += `<a href="${zipUrl}" download="cropped_pages.zip">Download ZIP</a><br/>`;
-
-        const { jsPDF } = window.jspdf;
-        const pdf = new jsPDF();
-        for (let i = 0; i < croppedImages.length; i++) {
-          const blob = await rgbaToBlob(croppedImages[i].width, croppedImages[i].height, croppedImages[i].data);
-          const imgUrl = URL.createObjectURL(blob);
-          if (i > 0) pdf.addPage();
-          pdf.addImage(imgUrl, 'PNG', 0, 0, pdf.internal.pageSize.getWidth(), pdf.internal.pageSize.getHeight());
+        
+        function contourFallbackCrop(srcMat, originalCanvas, marginPercent, pageNum, existingTrash) {
+            log(`[Page ${pageNum}] Using contour bounding-box fallback.`);
+            const gray = new cv.Mat(); existingTrash.push(gray);
+            cv.cvtColor(srcMat, gray, cv.COLOR_RGBA2GRAY);
+            const thresh = new cv.Mat(); existingTrash.push(thresh);
+            cv.threshold(gray, thresh, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU);
+            const inverted = new cv.Mat(); existingTrash.push(inverted);
+            cv.bitwise_not(thresh, inverted);
+            const contours = new cv.MatVector(); existingTrash.push(contours);
+            const hierarchy = new cv.Mat(); existingTrash.push(hierarchy);
+            cv.findContours(inverted, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+            
+            let largest = null, maxArea = 0;
+            for (let i = 0; i < contours.size(); i++) {
+                const cnt = contours.get(i);
+                try {
+                    const area = cv.contourArea(cnt);
+                    if (area > maxArea) {
+                        maxArea = area;
+                        if (largest) largest.delete();
+                        largest = cnt;
+                    } else cnt.delete();
+                } catch (e) { cnt.delete(); }
+            }
+            
+            if (!largest) {
+                log(`[Page ${pageNum}] No contour in fallback.`);
+                return null;
+            }
+            
+            const rect = cv.boundingRect(largest);
+            largest.delete();
+            const mX = Math.floor(rect.width * marginPercent / 100);
+            const mY = Math.floor(rect.height * marginPercent / 100);
+            let cropX = rect.x + mX, cropY = rect.y + mY;
+            let cropW = rect.width - 2 * mX, cropH = rect.height - 2 * mY;
+            if (cropX < 0) { cropW += cropX; cropX = 0; }
+            if (cropY < 0) { cropH += cropY; cropY = 0; }
+            if (cropX + cropW > originalCanvas.width) cropW = originalCanvas.width - cropX;
+            if (cropY + cropH > originalCanvas.height) cropH = originalCanvas.height - cropY;
+            if (cropW <= 0 || cropH <= 0) return null;
+            
+            const outCanvas = document.createElement('canvas');
+            outCanvas.width = cropW;
+            outCanvas.height = cropH;
+            const ctx = outCanvas.getContext('2d');
+            ctx.drawImage(originalCanvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+            log(`[Page ${pageNum}] Fallback crop: ${cropW}x${cropH}`);
+            return outCanvas;
         }
-        const pdfBlob = pdf.output('blob');
-        const pdfUrl = URL.createObjectURL(pdfBlob);
-        downloadsDiv.innerHTML += `<a href="${pdfUrl}" download="cropped_pages.pdf">Download PDF</a>`;
-
-        statusGlobal.innerHTML = `✅ Done. ${pages.length} pages processed.`;
-
-      } catch (err) {
-        console.error(err);
-        statusGlobal.innerHTML = `<span class="error">Error: ${err.message}</span>`;
-      } finally {
-        processBtn.disabled = false;
-      }
-    });
-  </script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+        
+        function readQuadPoints(mat) {
+            const pts = [];
+            const data = mat.data32S;
+            for (let i = 0; i < mat.rows; i++) pts.push({ x: data[i*2], y: data[i*2+1] });
+            return pts;
+        }
+        
+        function orderPoints(pts) {
+            const byY = pts.slice().sort((a,b) => a.y - b.y);
+            const top = byY.slice(0,2).sort((a,b) => a.x - b.x);
+            const bottom = byY.slice(2).sort((a,b) => b.x - a.x);
+            return [top[0], top[1], bottom[0], bottom[1]]; // tl, tr, br, bl
+        }
+        
+        // ─── Download handlers ─────────────────────────
+        document.getElementById('downloadZipBtn').addEventListener('click', async () => {
+            const zip = new JSZip();
+            for (let i = 0; i < processedCroppedBlobs.length; i++) {
+                zip.file(`page_${String(i+1).padStart(3,'0')}.jpg`, processedCroppedBlobs[i]);
+            }
+            const zipBlob = await zip.generateAsync({ type: 'blob' });
+            const url = URL.createObjectURL(zipBlob);
+            const a = document.createElement('a');
+            a.href = url; a.download = 'cropped_pages.zip'; a.click();
+            URL.revokeObjectURL(url);
+        });
+        
+        document.getElementById('downloadPdfBtn').addEventListener('click', async () => {
+            if (!processedCroppedBlobs.length) return alert('No pages processed.');
+            if (typeof window.jspdf === 'undefined') return alert('jsPDF still loading.');
+            const { jsPDF } = window.jspdf;
+            const pdf = new jsPDF({ unit: 'mm', format: 'a4', compress: true });
+            for (let i = 0; i < processedCroppedBlobs.length; i++) {
+                const blob = processedCroppedBlobs[i];
+                const url = URL.createObjectURL(blob);
+                const img = await new Promise((resolve, reject) => {
+                    const image = new Image();
+                    image.onload = () => resolve(image);
+                    image.onerror = reject;
+                    image.src = url;
+                });
+                if (i > 0) pdf.addPage();
+                const pageWidth = pdf.internal.pageSize.getWidth();
+                const pageHeight = pdf.internal.pageSize.getHeight();
+                const ratio = img.naturalWidth / img.naturalHeight;
+                let w = pageWidth;
+                let h = pageWidth / ratio;
+                if (h > pageHeight) {
+                    h = pageHeight;
+                    w = pageHeight * ratio;
+                }
+                pdf.addImage(img, 'JPEG', 0, 0, w, h, undefined, 'MEDIUM');
+                URL.revokeObjectURL(url);
+            }
+            pdf.save('cropped_document.pdf');
+        });
+    </script>
+    
+    <!-- jsPDF for PDF generation -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 </body>
 </html>
