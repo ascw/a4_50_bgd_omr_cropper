@@ -187,7 +187,6 @@
         tool3: `${basePath}/encrypted/tool3.html.enc`,
         tool4: `${basePath}/encrypted/tool4.html.enc`
       };
-      const LIB_FILENAMES = ['opencv.js', 'pdf.min.js', 'pdf.worker.min.js', 'xlsx.full.min.js', 'jszip.min.js', 'pdf-lib.min.js', 'jspdf.umd.min.js'];
 
       let currentKey = null;
       let currentTheme = localStorage.getItem('appTheme') || 'disabled';
@@ -272,34 +271,45 @@
         const encryptedUrl = ENCRYPTED_TOOLS[toolId];
         let htmlContent = await decryptTool(encryptedUrl, currentKey);
         const fixedBase = basePath ? basePath + '/' : '/';
+        // Fix relative library paths
         htmlContent = htmlContent.replace(/\.\.\/libs\//g, fixedBase + 'libs/');
-
-        // Remove existing library script tags from decrypted HTML
-        for (const filename of LIB_FILENAMES) {
-          const regex = new RegExp(`<script[^>]*${filename.replace('.', '\\.')}[^>]*>\\s*<\\/script>`, 'gi');
-          htmlContent = htmlContent.replace(regex, '');
-        }
+        // Remove any existing library script tags to avoid duplication
+        htmlContent = htmlContent.replace(/<script[^>]*src=.*?(?:opencv\.js|pdf\.min\.js|pdf\.worker\.min\.js|xlsx\.full\.min\.js|jszip\.min\.js|pdf-lib\.min\.js|jspdf\.umd\.min\.js)[^>]*>[\s\S]*?<\/script>/gi, '');
+        // Also remove inline opencv script if any
         htmlContent = htmlContent.replace(/<script[^>]*opencv\.js[^>]*>[\s\S]*?<\/script>/gi, '');
-
-        // Build new library script tags (absolute URLs)
-        let libScripts = '';
-        for (const lib of LIBRARIES) {
-          libScripts += `<script src="${lib}"></script>\n`;
-        }
-        libScripts += `<script src="${fixedBase}theme-bridge.js"></script>\n`;
-
-        // Insert library scripts into <head> (so they load before any inline script)
-        if (htmlContent.includes('</head>')) {
-          htmlContent = htmlContent.replace('</head>', libScripts + '</head>');
-        } else if (htmlContent.includes('<body')) {
-          // If no head, insert right after <body> opening tag
-          htmlContent = htmlContent.replace(/<body[^>]*>/, match => match + libScripts);
-        } else {
-          htmlContent = libScripts + htmlContent;
-        }
-
+        
+        // We will NOT inject library scripts here; instead, we'll inject them after iframe loads
         iframe.srcdoc = htmlContent;
-        iframe.onload = () => {
+        
+        iframe.onload = async () => {
+          // Now inject all libraries into the iframe's head
+          const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+          for (const lib of LIBRARIES) {
+            const cache = await caches.open('omr-libs');
+            let response = await cache.match(lib);
+            if (!response) response = await fetch(lib);
+            const blob = await response.blob();
+            const blobUrl = URL.createObjectURL(blob);
+            const script = iframeDoc.createElement('script');
+            script.src = blobUrl;
+            iframeDoc.head.appendChild(script);
+            await new Promise(resolve => script.onload = resolve);
+            URL.revokeObjectURL(blobUrl);
+          }
+          // Also inject theme-bridge.js
+          const bridgeUrl = `${fixedBase}theme-bridge.js`;
+          const bridgeCache = await caches.open('omr-libs');
+          let bridgeResp = await bridgeCache.match(bridgeUrl);
+          if (!bridgeResp) bridgeResp = await fetch(bridgeUrl);
+          const bridgeBlob = await bridgeResp.blob();
+          const bridgeBlobUrl = URL.createObjectURL(bridgeBlob);
+          const bridgeScript = iframeDoc.createElement('script');
+          bridgeScript.src = bridgeBlobUrl;
+          iframeDoc.head.appendChild(bridgeScript);
+          await new Promise(resolve => bridgeScript.onload = resolve);
+          URL.revokeObjectURL(bridgeBlobUrl);
+          
+          // After all libraries are loaded, re-send theme
           iframe.contentWindow.postMessage({ type: 'theme-change', theme: currentTheme }, '*');
         };
       }
