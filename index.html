@@ -1,993 +1,412 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PDF Auto Crop - Border Removal</title>
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Work+Sans:wght@400;500;600&display=swap');
-        
-        :root {
-            --bg-primary: #0a0e14;
-            --bg-secondary: #151b24;
-            --bg-tertiary: #1f2937;
-            --accent: #00e5ff;
-            --accent-dim: #00a8cc;
-            --text-primary: #e8eef5;
-            --text-secondary: #9ba6b8;
-            --border: #2d3748;
-            --success: #10b981;
-            --warning: #f59e0b;
-            --danger: #ef4444;
-        }
-        
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        
-        body {
-            font-family: 'Work Sans', sans-serif;
-            background: var(--bg-primary);
-            color: var(--text-primary);
-            line-height: 1.6;
-            overflow-x: hidden;
-        }
-        
-        body::before {
-            content: '';
-            position: fixed;
-            top: 0; left: 0; right: 0; bottom: 0;
-            background-image: 
-                linear-gradient(var(--border) 1px, transparent 1px),
-                linear-gradient(90deg, var(--border) 1px, transparent 1px);
-            background-size: 50px 50px;
-            opacity: 0.15;
-            pointer-events: none;
-            z-index: -1;
-        }
-        
-        .container {
-            max-width: 1400px;
-            margin: 0 auto;
-            padding: 2rem;
-        }
-        
-        header {
-            text-align: center;
-            margin-bottom: 3rem;
-            padding-top: 2rem;
-            animation: slideDown 0.6s ease-out;
-        }
-        
-        h1 {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 2.5rem;
-            font-weight: 700;
-            letter-spacing: -0.02em;
-            margin-bottom: 0.5rem;
-            background: linear-gradient(135deg, var(--accent) 0%, var(--text-primary) 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-        }
-        
-        .subtitle {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 0.875rem;
-            color: var(--text-secondary);
-            letter-spacing: 0.05em;
-            text-transform: uppercase;
-        }
-        
-        .card {
-            background: var(--bg-secondary);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 2rem;
-            margin-bottom: 2rem;
-            position: relative;
-            overflow: hidden;
-            animation: fadeIn 0.6s ease-out;
-            animation-fill-mode: both;
-        }
-        
-        .card::before {
-            content: '';
-            position: absolute;
-            top: 0; left: 0; right: 0;
-            height: 2px;
-            background: linear-gradient(90deg, var(--accent), transparent);
-            opacity: 0;
-            transition: opacity 0.3s;
-        }
-        
-        .card:hover::before { opacity: 1; }
-        
-        .card:nth-child(1) { animation-delay: 0.1s; }
-        .card:nth-child(2) { animation-delay: 0.2s; }
-        .card:nth-child(3) { animation-delay: 0.3s; }
-        
-        .card-title {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 0.875rem;
-            font-weight: 600;
-            color: var(--accent);
-            letter-spacing: 0.1em;
-            text-transform: uppercase;
-            margin-bottom: 1.5rem;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
-        
-        .card-title::before {
-            content: '';
-            width: 4px; height: 16px;
-            background: var(--accent);
-            display: inline-block;
-        }
-        
-        .upload-zone {
-            border: 2px dashed var(--border);
-            border-radius: 8px;
-            padding: 3rem;
-            text-align: center;
-            cursor: pointer;
-            transition: all 0.3s;
-            position: relative;
-            background: var(--bg-tertiary);
-        }
-        
-        .upload-zone:hover {
-            border-color: var(--accent);
-            background: rgba(0, 229, 255, 0.05);
-        }
-        
-        .upload-zone.dragover {
-            border-color: var(--accent);
-            background: rgba(0, 229, 255, 0.1);
-            transform: scale(1.02);
-        }
-        
-        .upload-icon { font-size: 3rem; margin-bottom: 1rem; opacity: 0.5; }
-        
-        input[type="file"] { display: none; }
-        
-        .controls {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 1.5rem;
-            margin-top: 1.5rem;
-        }
-        
-        .control-group {
-            display: flex;
-            flex-direction: column;
-            gap: 0.5rem;
-        }
-        
-        label {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 0.75rem;
-            color: var(--text-secondary);
-            letter-spacing: 0.05em;
-            text-transform: uppercase;
-        }
-        
-        input[type="range"] {
-            width: 100%;
-            height: 6px;
-            border-radius: 3px;
-            background: var(--bg-tertiary);
-            outline: none;
-            -webkit-appearance: none;
-        }
-        
-        input[type="range"]::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            appearance: none;
-            width: 18px; height: 18px;
-            border-radius: 50%;
-            background: var(--accent);
-            cursor: pointer;
-            box-shadow: 0 0 0 4px rgba(0, 229, 255, 0.2);
-            transition: all 0.2s;
-        }
-        
-        input[type="range"]::-webkit-slider-thumb:hover {
-            background: var(--text-primary);
-            box-shadow: 0 0 0 6px rgba(0, 229, 255, 0.3);
-        }
-        
-        input[type="number"] {
-            background: var(--bg-tertiary);
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            padding: 0.75rem;
-            color: var(--text-primary);
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 0.875rem;
-        }
-        
-        input[type="number"]:focus {
-            outline: none;
-            border-color: var(--accent);
-        }
-        
-        button {
-            background: var(--accent);
-            color: var(--bg-primary);
-            border: none;
-            border-radius: 6px;
-            padding: 0.875rem 1.75rem;
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 0.875rem;
-            font-weight: 600;
-            letter-spacing: 0.05em;
-            text-transform: uppercase;
-            cursor: pointer;
-            transition: all 0.2s;
-            position: relative;
-            overflow: hidden;
-        }
-        
-        button::before {
-            content: '';
-            position: absolute;
-            top: 50%; left: 50%;
-            width: 0; height: 0;
-            border-radius: 50%;
-            background: rgba(255, 255, 255, 0.3);
-            transform: translate(-50%, -50%);
-            transition: width 0.4s, height 0.4s;
-        }
-        
-        button:hover::before { width: 300px; height: 300px; }
-        
-        button:hover {
-            background: var(--text-primary);
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(0, 229, 255, 0.3);
-        }
-        
-        button:disabled {
-            background: var(--bg-tertiary);
-            color: var(--text-secondary);
-            cursor: not-allowed;
-            transform: none;
-        }
-        
-        .preview-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 2rem;
-            margin-top: 2rem;
-        }
-        
-        .preview-panel {
-            background: var(--bg-tertiary);
-            border-radius: 8px;
-            padding: 1.5rem;
-            border: 1px solid var(--border);
-        }
-        
-        .preview-label {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 0.75rem;
-            color: var(--text-secondary);
-            letter-spacing: 0.1em;
-            text-transform: uppercase;
-            margin-bottom: 1rem;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
-        
-        .preview-canvas-container {
-            background: var(--bg-primary);
-            border-radius: 6px;
-            padding: 1rem;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            min-height: 400px;
-            border: 1px solid var(--border);
-        }
-        
-        canvas { max-width: 100%; height: auto; border-radius: 4px; }
-        
-        .status {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.5rem;
-            padding: 0.5rem 1rem;
-            border-radius: 6px;
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 0.75rem;
-            letter-spacing: 0.05em;
-            margin-bottom: 1rem;
-        }
-        
-        .status.success {
-            background: rgba(16, 185, 129, 0.1);
-            color: var(--success);
-            border: 1px solid rgba(16, 185, 129, 0.3);
-        }
-        
-        .status.warning {
-            background: rgba(245, 158, 11, 0.1);
-            color: var(--warning);
-            border: 1px solid rgba(245, 158, 11, 0.3);
-        }
-        
-        .progress-bar {
-            width: 100%;
-            height: 4px;
-            background: var(--bg-tertiary);
-            border-radius: 2px;
-            overflow: hidden;
-            margin: 1rem 0;
-        }
-        
-        .progress-fill {
-            height: 100%;
-            background: linear-gradient(90deg, var(--accent), var(--accent-dim));
-            width: 0%;
-            transition: width 0.3s;
-            position: relative;
-        }
-        
-        .progress-fill::after {
-            content: '';
-            position: absolute;
-            top: 0; left: 0; bottom: 0; right: 0;
-            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
-            animation: shimmer 1.5s infinite;
-        }
-        
-        .download-section {
-            display: flex;
-            gap: 1rem;
-            flex-wrap: wrap;
-        }
-        
-        .stats {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 1rem;
-            margin-bottom: 2rem;
-        }
-        
-        .stat-card {
-            background: var(--bg-tertiary);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            padding: 1.5rem;
-            text-align: center;
-        }
-        
-        .stat-value {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 2rem;
-            font-weight: 700;
-            color: var(--accent);
-            margin-bottom: 0.5rem;
-        }
-        
-        .stat-label {
-            font-size: 0.75rem;
-            color: var(--text-secondary);
-            letter-spacing: 0.05em;
-            text-transform: uppercase;
-        }
-        
-        #debugImages { display:flex; flex-wrap:wrap; gap:10px; margin:1rem 0; }
-        
-        #logPanel {
-            background: #0d1117;
-            color: #c9d1d9;
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 0.75rem;
-            padding: 1rem;
-            border: 1px solid #30363d;
-            border-radius: 6px;
-            height: 300px;
-            overflow-y: auto;
-            white-space: pre-wrap;
-            margin-top: 1rem;
-        }
-        
-        @keyframes slideDown {
-            from { opacity: 0; transform: translateY(-30px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(20px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        
-        @keyframes shimmer {
-            0% { transform: translateX(-100%); }
-            100% { transform: translateX(100%); }
-        }
-        
-        .loading-spinner {
-            display: inline-block;
-            width: 16px; height: 16px;
-            border: 2px solid var(--border);
-            border-top-color: var(--accent);
-            border-radius: 50%;
-            animation: spin 0.8s linear infinite;
-        }
-        
-        @keyframes spin { to { transform: rotate(360deg); } }
-        
-        @media (max-width: 768px) {
-            .preview-grid { grid-template-columns: 1fr; }
-            .controls { grid-template-columns: 1fr; }
-            h1 { font-size: 2rem; }
-        }
-    </style>
+  <meta charset="UTF-8">
+  <title>OMR Suite – Private Tools</title>
+  <link rel="manifest" href="manifest.json">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      display: flex;
+      height: 100vh;
+      font-family: system-ui, 'Segoe UI', monospace;
+      background: #0a0e14;
+      color: #e8eef5;
+      transition: background 0.2s, color 0.2s;
+      overflow: hidden;
+    }
+
+    /* Sidebar */
+    .sidebar {
+      width: 260px;
+      background: #151b24;
+      border-right: 1px solid #2d3748;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      transition: width 0.25s ease;
+      overflow-x: hidden;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .sidebar.collapsed { width: 60px; }
+    .sidebar.collapsed .nav-buttons button span,
+    .sidebar.collapsed .theme-panel .theme-btn span { display: none; }
+    .sidebar.collapsed .nav-buttons button { text-align: center; padding: 0.75rem 0; }
+    .sidebar.collapsed .theme-panel { flex-direction: column; align-items: center; gap: 0.5rem; }
+    .sidebar.collapsed .theme-panel .theme-btn { padding: 6px; font-size: 1.2rem; }
+
+    .nav-buttons {
+      padding: 1.5rem 0;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+    .sidebar button {
+      background: transparent;
+      border: none;
+      color: #9ba6b8;
+      padding: 0.75rem 1.5rem;
+      text-align: left;
+      font-size: 1rem;
+      cursor: pointer;
+      font-family: inherit;
+      width: 100%;
+      transition: 0.1s;
+    }
+    .sidebar button:hover { background: #1f2937; color: #00e5ff; }
+    .sidebar button.active { background: #00e5ff20; color: #00e5ff; border-left: 3px solid #00e5ff; }
+
+    .toggle-btn {
+      background: transparent;
+      border: none;
+      color: #9ba6b8;
+      font-size: 1.4rem;
+      cursor: pointer;
+      padding: 0.75rem;
+      margin: 0.5rem 1rem 0 auto;
+      display: block;
+      width: auto;
+    }
+    .toggle-btn:hover { color: #00e5ff; }
+    .sidebar.collapsed .toggle-btn { margin: 0.5rem auto 0 auto; }
+
+    .theme-panel {
+      padding: 1rem 1.5rem;
+      border-top: 1px solid #2d3748;
+      display: flex;
+      gap: 0.5rem;
+      transition: all 0.2s;
+    }
+    .theme-btn {
+      background: #1f2937;
+      border: none;
+      border-radius: 30px;
+      padding: 6px 12px;
+      font-size: 0.8rem;
+      cursor: pointer;
+      color: white;
+    }
+    .theme-btn.active { background: #00e5ff; color: #0a0e14; }
+
+    .main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .toolbar {
+      background: #151b24;
+      padding: 0.5rem 1rem;
+      font-size: 0.8rem;
+      border-bottom: 1px solid #2d3748;
+      flex-shrink: 0;
+    }
+    iframe {
+      width: 100%;
+      height: 100%;
+      border: none;
+      background: #0a0e14;
+      flex: 1;
+    }
+
+    /* Custom scrollbar – themed */
+    ::-webkit-scrollbar { width: 10px; height: 10px; }
+    ::-webkit-scrollbar-track { background: #1e2937; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb { background: #3b4b62; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #5c6f8c; }
+    .force-light ::-webkit-scrollbar-track { background: #e2e8f0 !important; }
+    .force-light ::-webkit-scrollbar-thumb { background: #94a3b8 !important; }
+    .force-light ::-webkit-scrollbar-thumb:hover { background: #64748b !important; }
+    .force-dark ::-webkit-scrollbar-track { background: #1e2937 !important; }
+    .force-dark ::-webkit-scrollbar-thumb { background: #3b4b62 !important; }
+    * { scrollbar-width: thin; }
+    .force-light { scrollbar-color: #94a3b8 #e2e8f0 !important; }
+    .force-dark { scrollbar-color: #3b4b62 #1e2937 !important; }
+
+    /* Universal theme overrides */
+    .force-light, .force-light * { background-color: #ffffff !important; color: #000000 !important; }
+    .force-light button, .force-light .theme-btn { background-color: #e0e0e0 !important; color: #000000 !important; border-color: #cccccc !important; }
+    .force-light a, .force-light a * { color: #0000ee !important; }
+    .force-dark, .force-dark * { background-color: #1a1a1a !important; color: #f5e6a3 !important; border-color: #444444 !important; }
+    .force-dark a, .force-dark a * { color: #ffcc66 !important; }
+
+    /* Key entry overlay */
+    .key-overlay {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.9);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+    }
+    .key-card {
+      background: #1f2937;
+      padding: 2rem;
+      border-radius: 16px;
+      text-align: center;
+      max-width: 500px;
+    }
+    .key-card input { width: 100%; padding: 0.75rem; margin: 1rem 0; }
+    .key-card button { background: #00e5ff; color: #0a0e14; border: none; padding: 0.5rem 1.5rem; border-radius: 6px; cursor: pointer; }
+    .status-text { margin: 1rem 0; font-size: 0.9rem; }
+  </style>
 </head>
 <body>
-    <div class="container">
-        <header>
-            <h1>📄 PDF Auto Crop</h1>
-            <p class="subtitle">Border Detection & Removal System</p>
-        </header>
-        
-        <div class="card">
-            <div class="card-title">Upload PDF</div>
-            <div class="upload-zone" id="uploadZone">
-                <div class="upload-icon">📁</div>
-                <p style="margin-bottom: 0.5rem; font-weight: 500;">Drop PDF file here or click to browse</p>
-                <p style="font-size: 0.875rem; color: var(--text-secondary);">Supports multi-page PDFs</p>
-                <input type="file" id="fileInput" accept=".pdf">
-            </div>
-        </div>
-        
-        <div class="card" id="controlsCard" style="display: none;">
-            <div class="card-title">Processing Controls</div>
-            <div class="controls">
-                <div class="control-group">
-                    <label for="marginSlider">Crop Margin: <span id="marginValue">2.0</span>%</label>
-                    <input type="range" id="marginSlider" min="0" max="10" step="0.5" value="2">
-                </div>
-                <div class="control-group">
-                    <label for="maxPages">Max Pages to Process</label>
-                    <input type="number" id="maxPages" min="1" value="1">
-                </div>
-                <div class="control-group">
-                    <label for="scaleSlider">Render Scale: <span id="scaleValue">1.5</span></label>
-                    <input type="range" id="scaleSlider" min="0.5" max="3.0" step="0.1" value="1.5">
-                </div>
-                <div class="control-group">
-                    <label for="delaySlider">Inter‑page delay (ms): <span id="delayValue">500</span></label>
-                    <input type="range" id="delaySlider" min="0" max="2000" step="100" value="500">
-                </div>
-            </div>
-            <button id="processBtn" style="margin-top: 1.5rem;" disabled>
-                <span>Process PDF</span>
-            </button>
-            <div class="progress-bar" id="progressBar" style="display: none;">
-                <div class="progress-fill" id="progressFill"></div>
-            </div>
-        </div>
-        
-        <div class="card" id="statsCard" style="display: none;">
-            <div class="card-title">Processing Results</div>
-            <div class="stats">
-                <div class="stat-card">
-                    <div class="stat-value" id="totalPages">0</div>
-                    <div class="stat-label">Total Pages</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value" id="croppedPages">0</div>
-                    <div class="stat-label">Cropped</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value" id="failedPages">0</div>
-                    <div class="stat-label">Fallback</div>
-                </div>
-            </div>
-        </div>
-        
-        <div id="debugImages" style="display:flex; flex-wrap:wrap; gap:10px; margin:1rem 0;"></div>
-
-        <div class="card" id="previewCard" style="display: none;">
-            <div class="card-title">Preview (Page 1)</div>
-            <div class="preview-grid">
-                <div class="preview-panel">
-                    <div class="preview-label">Original</div>
-                    <div class="preview-canvas-container">
-                        <canvas id="originalCanvas"></canvas>
-                    </div>
-                </div>
-                <div class="preview-panel">
-                    <div class="preview-label">
-                        <span>Cropped</span>
-                        <span id="cropStatus"></span>
-                    </div>
-                    <div class="preview-canvas-container">
-                        <canvas id="croppedCanvas"></canvas>
-                    </div>
-                </div>
-            </div>
-        </div>
-        
-        <canvas id="workerCanvas" style="display: none;"></canvas>
-
-        <div class="card" id="downloadCard" style="display: none;">
-            <div class="card-title">Download Results</div>
-            <div class="download-section">
-                <button id="downloadZipBtn">
-                    <span>Download ZIP (Images)</span>
-                </button>
-                <button id="downloadPdfBtn">
-                    <span>Download PDF</span>
-                </button>
-            </div>
-        </div>
-
-        <div class="card">
-            <div class="card-title">⚙️ Debug Log</div>
-            <div id="logPanel"></div>
-            <button id="clearLogBtn" style="margin-top:0.5rem; font-size:0.75rem;">Clear Log</button>
-        </div>
+  <div class="sidebar" id="sidebar">
+    <div style="display: flex; flex-direction: column; flex: 1;">
+      <div style="display: flex; justify-content: flex-end;">
+        <button class="toggle-btn" id="toggleSidebarBtn" title="Collapse/Expand">◀</button>
+      </div>
+      <div class="nav-buttons">
+        <button data-tool="tool1">📝 <span>OMR Grader</span></button>
+        <button data-tool="tool2">✂️ <span>PDF Auto Crop</span></button>
+        <button data-tool="tool3">🖼️ <span>Image → PDF</span></button>
+        <button data-tool="tool4">🔑 <span>Answer Key Generator</span></button>
+      </div>
     </div>
-    
-    <!-- Libraries -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-    <script src="https://docs.opencv.org/4.10.0/opencv.js"></script>
-    
-    <script>
-        // ─── Wait for OpenCV.js to be fully ready ─────
-        async function waitForOpenCV() {
-            return new Promise(resolve => {
-                if (cv && cv.getBuildInformation) {
-                    resolve();
-                } else {
-                    cv['onRuntimeInitialized'] = resolve;
-                }
-            });
-        }
+    <div class="theme-panel">
+      <button class="theme-btn" data-theme="light">☀️ <span>Light</span></button>
+      <button class="theme-btn" data-theme="dark">🌙 <span>Dark</span></button>
+      <button class="theme-btn" data-theme="disabled">🚫 <span>Disable</span></button>
+    </div>
+  </div>
+  <div class="main">
+    <div class="toolbar">Select a tool →</div>
+    <iframe id="toolFrame" src="about:blank"></iframe>
+  </div>
 
-        // ─── Initialize PDF.js ────────────────────────
-        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-        
-        let pdfDocument = null;
-        let processedCroppedBlobs = [];
-        let originalPages = [];
-        
-        // ─── UI Elements ───────────────────────────────
-        const uploadZone = document.getElementById('uploadZone');
-        const fileInput = document.getElementById('fileInput');
-        const controlsCard = document.getElementById('controlsCard');
-        const processBtn = document.getElementById('processBtn');
-        const marginSlider = document.getElementById('marginSlider');
-        const marginValue = document.getElementById('marginValue');
-        const maxPagesInput = document.getElementById('maxPages');
-        const progressBar = document.getElementById('progressBar');
-        const progressFill = document.getElementById('progressFill');
-        const statsCard = document.getElementById('statsCard');
-        const previewCard = document.getElementById('previewCard');
-        const downloadCard = document.getElementById('downloadCard');
-        const scaleSlider = document.getElementById('scaleSlider');
-        const scaleValue = document.getElementById('scaleValue');
-        const delaySlider = document.getElementById('delaySlider');
-        const delayValue = document.getElementById('delayValue');
-        const originalCanvas = document.getElementById('originalCanvas');
-        const croppedCanvas = document.getElementById('croppedCanvas');
-        
-        // ─── Logging ──────────────────────────────────
-        const logPanel = document.getElementById('logPanel');
-        function log(msg) {
-            const time = new Date().toLocaleTimeString();
-            logPanel.textContent += `[${time}] ${msg}\n`;
-            logPanel.scrollTop = logPanel.scrollHeight;
+  <div id="keyOverlay" class="key-overlay" style="display: none;">
+    <div class="key-card">
+      <h3>🔐 Decryption Key Required</h3>
+      <p>This is your first visit or the key was cleared. Enter the decryption key to access tools.</p>
+      <input type="password" id="keyInput" placeholder="Base64 key">
+      <div><button id="submitKeyBtn">Unlock & Load</button></div>
+      <div id="loadingStatus" class="status-text"></div>
+    </div>
+  </div>
+
+  <script>
+    // ==================== CONFIGURATION ====================
+    const LIBRARIES = [
+      "libs/opencv.js",
+      "libs/pdf.min.js",
+      "libs/pdf.worker.min.js",
+      "libs/xlsx.full.min.js",
+      "libs/jszip.min.js",
+      "libs/pdf-lib.min.js",
+      "libs/jspdf.umd.min.js"
+    ];
+    const ENCRYPTED_TOOLS = {
+      tool1: "encrypted/tool1.html.enc",
+      tool2: "encrypted/tool2.html.enc",
+      tool3: "encrypted/tool3.html.enc",
+      tool4: "encrypted/tool4.html.enc"
+    };
+    // ======================================================
+
+    let currentDecryptionKey = null;
+    let librariesCached = false;
+    let activeTool = 'tool1';
+    let currentTheme = localStorage.getItem('appTheme') || 'disabled';
+
+    // --- DOM elements ---
+    const sidebar = document.getElementById('sidebar');
+    const toggleBtn = document.getElementById('toggleSidebarBtn');
+    const navButtons = document.querySelectorAll('.nav-buttons button');
+    const themeBtns = document.querySelectorAll('.theme-btn');
+    const iframe = document.getElementById('toolFrame');
+    const keyOverlay = document.getElementById('keyOverlay');
+    const keyInput = document.getElementById('keyInput');
+    const submitKeyBtn = document.getElementById('submitKeyBtn');
+    const loadingStatus = document.getElementById('loadingStatus');
+
+    // --- Sidebar collapse ---
+    let isCollapsed = localStorage.getItem('sidebarCollapsed') === 'true';
+    function setSidebarCollapsed(collapsed) {
+      isCollapsed = collapsed;
+      if (collapsed) {
+        sidebar.classList.add('collapsed');
+        toggleBtn.innerHTML = '▶';
+        toggleBtn.title = 'Expand';
+      } else {
+        sidebar.classList.remove('collapsed');
+        toggleBtn.innerHTML = '◀';
+        toggleBtn.title = 'Collapse';
+      }
+      localStorage.setItem('sidebarCollapsed', collapsed);
+    }
+    toggleBtn.addEventListener('click', () => setSidebarCollapsed(!isCollapsed));
+    setSidebarCollapsed(isCollapsed);
+
+    // --- Theme handling (parent + iframe) ---
+    function applyThemeToParent(theme) {
+      document.body.classList.remove('force-light', 'force-dark');
+      if (theme === 'light') document.body.classList.add('force-light');
+      else if (theme === 'dark') document.body.classList.add('force-dark');
+    }
+    function setThemeActive(theme) {
+      themeBtns.forEach(btn => {
+        if (btn.dataset.theme === theme) btn.classList.add('active');
+        else btn.classList.remove('active');
+      });
+    }
+    function broadcastTheme(theme) {
+      currentTheme = theme;
+      localStorage.setItem('appTheme', theme);
+      setThemeActive(theme);
+      applyThemeToParent(theme);
+      if (iframe.contentWindow && iframe.src !== 'about:blank') {
+        iframe.contentWindow.postMessage({ type: 'theme-change', theme }, '*');
+      }
+    }
+    themeBtns.forEach(btn => {
+      btn.addEventListener('click', () => broadcastTheme(btn.dataset.theme));
+    });
+
+    // --- Cache libraries (Cache API) ---
+    async function cacheAllLibraries() {
+      const cache = await caches.open('omr-libs');
+      const toFetch = LIBRARIES.map(url => new Request(url, { cache: 'reload' }));
+      await cache.addAll(toFetch);
+      librariesCached = true;
+    }
+
+    // --- Load a library script from cache or network ---
+    async function loadLibrary(url) {
+      const cache = await caches.open('omr-libs');
+      let response = await cache.match(url);
+      if (!response) {
+        response = await fetch(url);
+        if (response.ok) await cache.put(url, response.clone());
+      }
+      const blob = await response.blob();
+      const script = document.createElement('script');
+      script.src = URL.createObjectURL(blob);
+      document.head.appendChild(script);
+      return new Promise(resolve => { script.onload = resolve; });
+    }
+
+    // --- Decrypt tool HTML ---
+    async function decryptTool(encryptedUrl, keyBytes) {
+      const response = await fetch(encryptedUrl);
+      const encryptedBlob = await response.arrayBuffer();
+      const nonce = encryptedBlob.slice(0, 12);
+      const ciphertext = encryptedBlob.slice(12);
+      const cryptoKey = await crypto.subtle.importKey(
+        'raw', keyBytes, { name: 'AES-GCM' }, false, ['decrypt']
+      );
+      const plaintext = await crypto.subtle.decrypt(
+        { name: 'AES-GCM', iv: nonce }, cryptoKey, ciphertext
+      );
+      return new TextDecoder().decode(plaintext);
+    }
+
+    // --- Load a tool into iframe after decryption ---
+    async function loadTool(toolId) {
+      if (!currentDecryptionKey) throw new Error('No key');
+      const encryptedUrl = ENCRYPTED_TOOLS[toolId];
+      const htmlContent = await decryptTool(encryptedUrl, currentDecryptionKey);
+      const blob = new Blob([htmlContent], { type: 'text/html' });
+      const blobUrl = URL.createObjectURL(blob);
+      iframe.src = blobUrl;
+      // Revoke after load to free memory
+      iframe.onload = () => {
+        URL.revokeObjectURL(blobUrl);
+        iframe.onload = null;
+        // Re-send current theme to the newly loaded iframe
+        iframe.contentWindow.postMessage({ type: 'theme-change', theme: currentTheme }, '*');
+      };
+    }
+
+    // --- Main initialization (after key provided) ---
+    async function initializeWithKey(keyBase64) {
+      loadingStatus.innerText = '🔑 Decoding key...';
+      let keyBytes;
+      try {
+        keyBytes = Uint8Array.from(atob(keyBase64), c => c.charCodeAt(0));
+        if (keyBytes.length !== 32) throw new Error('Invalid key length');
+      } catch(e) {
+        loadingStatus.innerText = '❌ Invalid base64 key. Please check.';
+        return;
+      }
+      currentDecryptionKey = keyBytes;
+      localStorage.setItem('omr_key', keyBase64);
+      loadingStatus.innerText = '📦 Caching libraries (one time)...';
+      await cacheAllLibraries();
+      loadingStatus.innerText = '📚 Loading libraries...';
+      for (const lib of LIBRARIES) {
+        await loadLibrary(lib);
+      }
+      loadingStatus.innerText = '✅ Ready! Loading tools...';
+      keyOverlay.style.display = 'none';
+      // Load the last active tool
+      const lastTool = localStorage.getItem('lastTool') || 'tool1';
+      activeTool = lastTool;
+      await loadTool(activeTool);
+      // Highlight active button in sidebar
+      navButtons.forEach(btn => {
+        if (btn.dataset.tool === activeTool) btn.classList.add('active');
+        else btn.classList.remove('active');
+      });
+    }
+
+    // --- Check if key exists in localStorage ---
+    async function checkSavedKey() {
+      const savedKey = localStorage.getItem('omr_key');
+      if (savedKey) {
+        // Show overlay but with "loading" message, no input needed
+        keyOverlay.style.display = 'flex';
+        loadingStatus.innerText = '🔐 Saved key found. Unlocking...';
+        await initializeWithKey(savedKey);
+      } else {
+        keyOverlay.style.display = 'flex';
+        loadingStatus.innerText = 'Enter decryption key to continue.';
+      }
+    }
+
+    // --- Event: submit key manually ---
+    submitKeyBtn.addEventListener('click', async () => {
+      const key = keyInput.value.trim();
+      if (!key) return;
+      await initializeWithKey(key);
+    });
+
+    // --- Tool navigation (from sidebar) ---
+    navButtons.forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const toolId = btn.dataset.tool;
+        if (!toolId) return;
+        if (!currentDecryptionKey) {
+          alert('Decryption key not ready yet. Please reload.');
+          return;
         }
-        document.getElementById('clearLogBtn').addEventListener('click', () => { logPanel.textContent = ''; });
-        
-        // ─── Upload zone interactions ──────────────────
-        uploadZone.addEventListener('click', () => fileInput.click());
-        uploadZone.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            uploadZone.classList.add('dragover');
-        });
-        uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('dragover'));
-        uploadZone.addEventListener('drop', (e) => {
-            e.preventDefault();
-            uploadZone.classList.remove('dragover');
-            const file = e.dataTransfer.files[0];
-            if (file && file.type === 'application/pdf') handlePdfUpload(file);
-        });
-        fileInput.addEventListener('change', (e) => {
-            const file = e.target.files[0];
-            if (file) handlePdfUpload(file);
-        });
-        
-        marginSlider.addEventListener('input', (e) => marginValue.textContent = e.target.value);
-        scaleSlider.addEventListener('input', (e) => scaleValue.textContent = e.target.value);
-        delaySlider.addEventListener('input', (e) => delayValue.textContent = e.target.value);
-        
-        // ─── Enable process button only after OpenCV is ready ──
-        (async function init() {
-            await waitForOpenCV();
-            processBtn.disabled = false;
-            log('OpenCV ready.');
-        })();
-        
-        processBtn.addEventListener('click', processPdf);
-        
-        // ─── Handle uploaded PDF ──────────────────────
-        async function handlePdfUpload(file) {
-            const arrayBuffer = await file.arrayBuffer();
-            pdfDocument = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-            const numPages = pdfDocument.numPages;
-            maxPagesInput.max = numPages;
-            maxPagesInput.value = numPages;
-            controlsCard.style.display = 'block';
-            log(`Loaded ${numPages} page(s).`);
-            uploadZone.innerHTML = `
-                <div class="status success">
-                    <span>✓</span>
-                    <span>Loaded ${numPages} page(s) - Ready to process</span>
-                </div>
-            `;
-        }
-        
-        const delay = ms => new Promise(res => setTimeout(res, ms));
-        const microDelay = () => delay(0);
-        
-        // ─── Main processing loop ─────────────────────
-        async function processPdf() {
-            if (!pdfDocument) return;
-            
-            processBtn.disabled = true;
-            processBtn.innerHTML = '<span class="loading-spinner"></span><span style="margin-left:8px">Processing...</span>';
-            progressBar.style.display = 'block';
-            progressFill.style.width = '0%';
-            
-            const marginPercent = parseFloat(marginSlider.value);
-            const maxPages = parseInt(maxPagesInput.value);
-            const numPages = Math.min(maxPages, pdfDocument.numPages);
-            const scale = parseFloat(scaleSlider.value);
-            const interPageDelay = parseInt(delaySlider.value);
-            
-            log(`Processing: ${numPages} pages, scale=${scale}, margin=${marginPercent}%, delay=${interPageDelay}ms`);
-            
-            const workerCanvas = document.getElementById('workerCanvas');
-            const ctx = workerCanvas.getContext('2d', { willReadFrequently: true });
-            
-            processedCroppedBlobs = [];
-            originalPages = [];
-            let successCount = 0, failCount = 0;
-            
-            for (let i = 1; i <= numPages; i++) {
-                log(`\n--- Page ${i}/${numPages} ---`);
-                try {
-                    const page = await pdfDocument.getPage(i);
-                    const viewport = page.getViewport({ scale });
-                    
-                    workerCanvas.width = 0; workerCanvas.height = 0;
-                    workerCanvas.width = viewport.width;
-                    workerCanvas.height = viewport.height;
-                    ctx.clearRect(0, 0, viewport.width, viewport.height);
-                    
-                    await page.render({ canvasContext: ctx, viewport }).promise;
-                    log(`Rendered (${viewport.width}x${viewport.height})`);
-                    
-                    if (i === 1) {
-                        const origCopy = document.createElement('canvas');
-                        origCopy.width = workerCanvas.width;
-                        origCopy.height = workerCanvas.height;
-                        origCopy.getContext('2d').drawImage(workerCanvas, 0, 0);
-                        originalPages.push(origCopy);
-                    }
-                    
-                    await microDelay();
-                    
-                    const croppedCanvasOut = await quadrilateralCrop(workerCanvas, marginPercent, i);
-                    if (croppedCanvasOut) {
-                        successCount++;
-                        const blob = await new Promise(res => croppedCanvasOut.toBlob(res, 'image/jpeg', 0.92));
-                        processedCroppedBlobs.push(blob);
-                        croppedCanvasOut.width = 0; croppedCanvasOut.height = 0;
-                        log(`Cropped blob: ${blob.size} bytes`);
-                    } else {
-                        failCount++;
-                        const blob = await new Promise(res => workerCanvas.toBlob(res, 'image/jpeg', 0.92));
-                        processedCroppedBlobs.push(blob);
-                        log(`Fallback blob: ${blob.size} bytes`);
-                    }
-                    
-                    page.cleanup();
-                    workerCanvas.width = 0; workerCanvas.height = 0;
-                    progressFill.style.width = `${(i/numPages)*100}%`;
-                    await delay(interPageDelay);
-                    await microDelay();
-                } catch (e) {
-                    log(`ERROR: ${e.message || e} ${e.stack}`);
-                    failCount++;
-                    try {
-                        if (workerCanvas.width > 0 && workerCanvas.height > 0) {
-                            const blob = await new Promise(res => workerCanvas.toBlob(res, 'image/jpeg', 0.92));
-                            processedCroppedBlobs.push(blob);
-                        }
-                    } catch (e2) {}
-                    workerCanvas.width = 0; workerCanvas.height = 0;
-                }
-            }
-            
-            log(`\nDone. Cropped: ${successCount}, Fallback: ${failCount}`);
-            document.getElementById('totalPages').textContent = numPages;
-            document.getElementById('croppedPages').textContent = successCount;
-            document.getElementById('failedPages').textContent = failCount;
-            
-            statsCard.style.display = 'block';
-            downloadCard.style.display = 'block';
-            showPreview();
-            
-            processBtn.disabled = false;
-            processBtn.innerHTML = '<span>Process PDF</span>';
-            progressBar.style.display = 'none';
-        }
-        
-        function showPreview() {
-            if (originalPages.length && processedCroppedBlobs.length) {
-                const origCanvas = originalPages[0];
-                const blob = processedCroppedBlobs[0];
-                originalCanvas.width = origCanvas.width;
-                originalCanvas.height = origCanvas.height;
-                originalCanvas.getContext('2d').drawImage(origCanvas, 0, 0);
-                
-                const url = URL.createObjectURL(blob);
-                const img = new Image();
-                img.onload = () => {
-                    croppedCanvas.width = img.naturalWidth;
-                    croppedCanvas.height = img.naturalHeight;
-                    croppedCanvas.getContext('2d').drawImage(img, 0, 0);
-                    URL.revokeObjectURL(url);
-                };
-                img.src = url;
-                previewCard.style.display = 'block';
-            }
-        }
-        
-        // ─── Quadrilateral detection with fallback ─────
-        async function quadrilateralCrop(srcCanvas, marginPercent, pageNum) {
-            const trash = [];
-            try {
-                const src = cv.imread(srcCanvas);
-                trash.push(src);
-                if (src.empty()) {
-                    log(`[Page ${pageNum}] imread empty.`);
-                    return null;
-                }
-                
-                const gray = new cv.Mat(); trash.push(gray);
-                cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
-                
-                const edges = new cv.Mat(); trash.push(edges);
-                cv.Canny(gray, edges, 30, 150);
-                
-                const kernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(3,3)); trash.push(kernel);
-                const dilated = new cv.Mat(); trash.push(dilated);
-                cv.dilate(edges, dilated, kernel);
-                
-                const contours = new cv.MatVector(); trash.push(contours);
-                const hierarchy = new cv.Mat(); trash.push(hierarchy);
-                cv.findContours(dilated, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
-                
-                let bestQuad = null;
-                let bestQuadArea = 0;
-                
-                for (let i = 0; i < contours.size(); i++) {
-                    const cnt = contours.get(i);
-                    try {
-                        const peri = cv.arcLength(cnt, true);
-                        const approx = new cv.Mat();
-                        cv.approxPolyDP(cnt, approx, 0.02 * peri, true);
-                        if (approx.rows === 4) {
-                            const area = cv.contourArea(approx);
-                            if (area > bestQuadArea) {
-                                bestQuadArea = area;
-                                if (bestQuad) bestQuad.delete();
-                                bestQuad = approx.clone();
-                            }
-                        }
-                        approx.delete();
-                    } finally { cnt.delete(); }
-                }
-                
-                const imageArea = src.cols * src.rows;
-                log(`[Page ${pageNum}] Best quad area: ${bestQuadArea} (${(bestQuadArea/imageArea*100).toFixed(1)}% of image)`);
-                
-                const MIN_QUAD_AREA_RATIO = 0.10;
-                if (!bestQuad || bestQuadArea < imageArea * MIN_QUAD_AREA_RATIO) {
-                    if (bestQuad) bestQuad.delete();
-                    log(`[Page ${pageNum}] Quad too small or missing, using contour fallback.`);
-                    return contourFallbackCrop(src, srcCanvas, marginPercent, pageNum, trash);
-                }
-                
-                const quadPoints = readQuadPoints(bestQuad);
-                bestQuad.delete();
-                const ordered = orderPoints(quadPoints);
-                log(`[Page ${pageNum}] Quad corners: ${JSON.stringify(ordered.map(p => `(${p.x},${p.y})`))}`);
-                
-                const width1 = Math.hypot(ordered[1].x - ordered[0].x, ordered[1].y - ordered[0].y);
-                const width2 = Math.hypot(ordered[2].x - ordered[3].x, ordered[2].y - ordered[3].y);
-                const dstWidth = Math.round(Math.max(width1, width2));
-                const height1 = Math.hypot(ordered[3].x - ordered[0].x, ordered[3].y - ordered[0].y);
-                const height2 = Math.hypot(ordered[2].x - ordered[1].x, ordered[2].y - ordered[1].y);
-                const dstHeight = Math.round(Math.max(height1, height2));
-                
-                const srcPoints = [
-                    ordered[0].x, ordered[0].y,
-                    ordered[1].x, ordered[1].y,
-                    ordered[2].x, ordered[2].y,
-                    ordered[3].x, ordered[3].y
-                ];
-                const dstPoints = [
-                    0, 0,
-                    dstWidth - 1, 0,
-                    dstWidth - 1, dstHeight - 1,
-                    0, dstHeight - 1
-                ];
-                
-                const srcMat = cv.matFromArray(4, 2, cv.CV_32FC1, srcPoints); trash.push(srcMat);
-                const dstMat = cv.matFromArray(4, 2, cv.CV_32FC1, dstPoints); trash.push(dstMat);
-                
-                const M = cv.getPerspectiveTransform(srcMat, dstMat); trash.push(M);
-                
-                const warped = new cv.Mat(); trash.push(warped);
-                cv.warpPerspective(src, warped, M, new cv.Size(dstWidth, dstHeight),
-                                  cv.INTER_LINEAR, cv.BORDER_CONSTANT, new cv.Scalar(255,255,255,255));
-                
-                const mX = Math.floor(dstWidth * marginPercent / 100);
-                const mY = Math.floor(dstHeight * marginPercent / 100);
-                let cropX = Math.max(0, mX);
-                let cropY = Math.max(0, mY);
-                let cropW = dstWidth - 2 * mX;
-                let cropH = dstHeight - 2 * mY;
-                if (cropW <= 0) cropW = 1;
-                if (cropH <= 0) cropH = 1;
-                if (cropX + cropW > dstWidth) cropW = dstWidth - cropX;
-                if (cropY + cropH > dstHeight) cropH = dstHeight - cropY;
-                
-                const outputCanvas = document.createElement('canvas');
-                outputCanvas.width = cropW;
-                outputCanvas.height = cropH;
-                const outCtx = outputCanvas.getContext('2d');
-                
-                const tempCanvas = document.createElement('canvas');
-                tempCanvas.width = dstWidth;
-                tempCanvas.height = dstHeight;
-                cv.imshow(tempCanvas, warped);
-                outCtx.drawImage(tempCanvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
-                tempCanvas.width = 0; tempCanvas.height = 0;
-                
-                log(`[Page ${pageNum}] Quad crop successful: ${cropW}x${cropH}`);
-                return outputCanvas;
-                
-            } catch (e) {
-                log(`[Page ${pageNum}] Quad crop error: ${e.message || e} ${e.stack}`);
-                return null;
-            } finally {
-                trash.forEach(m => { try { if (m && typeof m.delete === 'function') m.delete(); } catch(e){} });
-            }
-        }
-        
-        function contourFallbackCrop(srcMat, originalCanvas, marginPercent, pageNum, existingTrash) {
-            log(`[Page ${pageNum}] Using contour bounding-box fallback.`);
-            const gray = new cv.Mat(); existingTrash.push(gray);
-            cv.cvtColor(srcMat, gray, cv.COLOR_RGBA2GRAY);
-            const thresh = new cv.Mat(); existingTrash.push(thresh);
-            cv.threshold(gray, thresh, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU);
-            const inverted = new cv.Mat(); existingTrash.push(inverted);
-            cv.bitwise_not(thresh, inverted);
-            const contours = new cv.MatVector(); existingTrash.push(contours);
-            const hierarchy = new cv.Mat(); existingTrash.push(hierarchy);
-            cv.findContours(inverted, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
-            
-            let largest = null, maxArea = 0;
-            for (let i = 0; i < contours.size(); i++) {
-                const cnt = contours.get(i);
-                try {
-                    const area = cv.contourArea(cnt);
-                    if (area > maxArea) {
-                        maxArea = area;
-                        if (largest) largest.delete();
-                        largest = cnt;
-                    } else cnt.delete();
-                } catch (e) { cnt.delete(); }
-            }
-            
-            if (!largest) {
-                log(`[Page ${pageNum}] No contour in fallback.`);
-                return null;
-            }
-            
-            const rect = cv.boundingRect(largest);
-            largest.delete();
-            const mX = Math.floor(rect.width * marginPercent / 100);
-            const mY = Math.floor(rect.height * marginPercent / 100);
-            let cropX = rect.x + mX, cropY = rect.y + mY;
-            let cropW = rect.width - 2 * mX, cropH = rect.height - 2 * mY;
-            if (cropX < 0) { cropW += cropX; cropX = 0; }
-            if (cropY < 0) { cropH += cropY; cropY = 0; }
-            if (cropX + cropW > originalCanvas.width) cropW = originalCanvas.width - cropX;
-            if (cropY + cropH > originalCanvas.height) cropH = originalCanvas.height - cropY;
-            if (cropW <= 0 || cropH <= 0) return null;
-            
-            const outCanvas = document.createElement('canvas');
-            outCanvas.width = cropW;
-            outCanvas.height = cropH;
-            const ctx = outCanvas.getContext('2d');
-            ctx.drawImage(originalCanvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
-            log(`[Page ${pageNum}] Fallback crop: ${cropW}x${cropH}`);
-            return outCanvas;
-        }
-        
-        function readQuadPoints(mat) {
-            const pts = [];
-            const data = mat.data32S;
-            for (let i = 0; i < mat.rows; i++) pts.push({ x: data[i*2], y: data[i*2+1] });
-            return pts;
-        }
-        
-        function orderPoints(pts) {
-            const byY = pts.slice().sort((a,b) => a.y - b.y);
-            const top = byY.slice(0,2).sort((a,b) => a.x - b.x);
-            const bottom = byY.slice(2).sort((a,b) => b.x - a.x);
-            return [top[0], top[1], bottom[0], bottom[1]]; // tl, tr, br, bl
-        }
-        
-        // ─── Download handlers ─────────────────────────
-        document.getElementById('downloadZipBtn').addEventListener('click', async () => {
-            const zip = new JSZip();
-            for (let i = 0; i < processedCroppedBlobs.length; i++) {
-                zip.file(`page_${String(i+1).padStart(3,'0')}.jpg`, processedCroppedBlobs[i]);
-            }
-            const zipBlob = await zip.generateAsync({ type: 'blob' });
-            const url = URL.createObjectURL(zipBlob);
-            const a = document.createElement('a');
-            a.href = url; a.download = 'cropped_pages.zip'; a.click();
-            URL.revokeObjectURL(url);
-        });
-        
-        document.getElementById('downloadPdfBtn').addEventListener('click', async () => {
-            if (!processedCroppedBlobs.length) return alert('No pages processed.');
-            if (typeof window.jspdf === 'undefined') return alert('jsPDF still loading.');
-            const { jsPDF } = window.jspdf;
-            const pdf = new jsPDF({ unit: 'mm', format: 'a4', compress: true });
-            for (let i = 0; i < processedCroppedBlobs.length; i++) {
-                const blob = processedCroppedBlobs[i];
-                const url = URL.createObjectURL(blob);
-                const img = await new Promise((resolve, reject) => {
-                    const image = new Image();
-                    image.onload = () => resolve(image);
-                    image.onerror = reject;
-                    image.src = url;
-                });
-                if (i > 0) pdf.addPage();
-                const pageWidth = pdf.internal.pageSize.getWidth();
-                const pageHeight = pdf.internal.pageSize.getHeight();
-                const ratio = img.naturalWidth / img.naturalHeight;
-                let w = pageWidth;
-                let h = pageWidth / ratio;
-                if (h > pageHeight) {
-                    h = pageHeight;
-                    w = pageHeight * ratio;
-                }
-                pdf.addImage(img, 'JPEG', 0, 0, w, h, undefined, 'MEDIUM');
-                URL.revokeObjectURL(url);
-            }
-            pdf.save('cropped_document.pdf');
-        });
-    </script>
-    
-    <!-- jsPDF for PDF generation -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+        activeTool = toolId;
+        localStorage.setItem('lastTool', toolId);
+        await loadTool(toolId);
+        navButtons.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+      });
+    });
+
+    // --- Listen for theme requests from iframe (theme-bridge.js) ---
+    window.addEventListener('message', (event) => {
+      if (event.data && event.data.type === 'theme-request') {
+        event.source.postMessage({ type: 'theme-change', theme: currentTheme }, '*');
+      }
+    });
+
+    // --- Service Worker registration for offline ---
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('sw.js').catch(err => console.warn('SW registration failed:', err));
+    }
+
+    // --- Start ---
+    applyThemeToParent(currentTheme);
+    setThemeActive(currentTheme);
+    checkSavedKey();
+  </script>
 </body>
 </html>
