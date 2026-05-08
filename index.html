@@ -269,8 +269,10 @@
     // --- Cache libraries ---
     async function cacheAllLibraries() {
       const cache = await caches.open('omr-libs');
-      const toFetch = LIBRARIES.map(url => new Request(url, { cache: 'reload' }));
-      await cache.addAll(toFetch);
+     // Combine libraries AND encrypted tool files
+      const encryptedUrls = Object.values(ENCRYPTED_TOOLS);
+      const allUrls = [...LIBRARIES, ...encryptedUrls];
+      await cache.addAll(allUrls);
       librariesCached = true;
     }
 
@@ -290,7 +292,12 @@
 
     // --- Decrypt tool HTML ---
     async function decryptTool(encryptedUrl, keyBytes) {
-      const response = await fetch(encryptedUrl);
+      const cache = await caches.open('omr-libs');
+      let response = await cache.match(encryptedUrl);
+      if (!response) {
+        response = await fetch(encryptedUrl);
+        if (response.ok) await cache.put(encryptedUrl, response.clone());
+      }
       const encryptedBlob = await response.arrayBuffer();
       const nonce = encryptedBlob.slice(0, 12);
       const ciphertext = encryptedBlob.slice(12);
