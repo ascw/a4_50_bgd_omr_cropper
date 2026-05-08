@@ -90,21 +90,31 @@ self.addEventListener('install', event => {
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
   
-  // Intercept encrypted tool requests
-  if (url.pathname.match(/\/encrypted\/.*\.enc$/)) {
+  // Intercept tool1.html, tool2.html, etc.
+  if (url.pathname.match(/\/tool[1-4]\.html$/)) {
     event.respondWith((async () => {
-      const cache = await caches.open(CACHE_NAME);
-      const response = await cache.match(event.request);
-      if (!response) return new Response('Not found', { status: 404 });
+      // Map to the corresponding encrypted file
+      const toolName = url.pathname.split('/').pop(); // e.g., "tool1.html"
+      const encFileName = toolName.replace('.html', '.html.enc');
+      const encryptedUrl = `${BASE}/encrypted/${encFileName}`;
       
+      const cache = await caches.open(CACHE_NAME);
+      let response = await cache.match(encryptedUrl);
+      if (!response) {
+        // Fallback: fetch from network (should not happen after first visit)
+        response = await fetch(encryptedUrl);
+        if (response.ok) await cache.put(encryptedUrl, response.clone());
+      }
       const encryptedBuffer = await response.arrayBuffer();
+      
       const key = await getKey();
       if (!key) {
-        // No key yet – redirect to main page to ask for it
+        // No key stored – redirect to index page to ask for key
         return Response.redirect(`${BASE}/?needkey=1`, 302);
       }
       try {
         const htmlContent = await decrypt(encryptedBuffer, key);
+        // Return as HTML with proper content type
         return new Response(htmlContent, {
           headers: { 'Content-Type': 'text/html' }
         });
