@@ -6,7 +6,6 @@
   <link rel="manifest" href="manifest.json">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-
     body {
       display: flex;
       height: 100vh;
@@ -16,7 +15,6 @@
       transition: background 0.2s, color 0.2s;
       overflow: hidden;
     }
-
     .sidebar {
       width: 260px;
       background: #151b24;
@@ -35,7 +33,6 @@
     .sidebar.collapsed .nav-buttons button { text-align: center; padding: 0.75rem 0; }
     .sidebar.collapsed .theme-panel { flex-direction: column; align-items: center; gap: 0.5rem; }
     .sidebar.collapsed .theme-panel .theme-btn { padding: 6px; font-size: 1.2rem; }
-
     .nav-buttons {
       padding: 1.5rem 0;
       display: flex;
@@ -56,7 +53,6 @@
     }
     .sidebar button:hover { background: #1f2937; color: #00e5ff; }
     .sidebar button.active { background: #00e5ff20; color: #00e5ff; border-left: 3px solid #00e5ff; }
-
     .toggle-btn {
       background: transparent;
       border: none;
@@ -70,7 +66,6 @@
     }
     .toggle-btn:hover { color: #00e5ff; }
     .sidebar.collapsed .toggle-btn { margin: 0.5rem auto 0 auto; }
-
     .theme-panel {
       padding: 1rem 1.5rem;
       border-top: 1px solid #2d3748;
@@ -88,7 +83,6 @@
       color: white;
     }
     .theme-btn.active { background: #00e5ff; color: #0a0e14; }
-
     .main {
       flex: 1;
       display: flex;
@@ -109,7 +103,6 @@
       background: #0a0e14;
       flex: 1;
     }
-
     ::-webkit-scrollbar { width: 10px; height: 10px; }
     ::-webkit-scrollbar-track { background: #1e2937; border-radius: 4px; }
     ::-webkit-scrollbar-thumb { background: #3b4b62; border-radius: 4px; }
@@ -120,13 +113,11 @@
     * { scrollbar-width: thin; }
     .force-light { scrollbar-color: #94a3b8 #e2e8f0 !important; }
     .force-dark { scrollbar-color: #3b4b62 #1e2937 !important; }
-
     .force-light, .force-light * { background-color: #ffffff !important; color: #000000 !important; }
     .force-light button, .force-light .theme-btn { background-color: #e0e0e0 !important; color: #000000 !important; border-color: #cccccc !important; }
     .force-light a, .force-light a * { color: #0000ee !important; }
     .force-dark, .force-dark * { background-color: #1a1a1a !important; color: #f5e6a3 !important; border-color: #444444 !important; }
     .force-dark a, .force-dark a * { color: #ffcc66 !important; }
-
     .key-overlay {
       position: fixed;
       top: 0; left: 0; right: 0; bottom: 0;
@@ -169,7 +160,6 @@
     <div class="toolbar">Select a tool →</div>
     <iframe id="toolFrame" srcdoc="<html><body style='background:#0a0e14;color:white;text-align:center;padding:2rem'>Loading tool...</body></html>"></iframe>
   </div>
-
   <div id="keyOverlay" class="key-overlay" style="display: none;">
     <div class="key-card">
       <h3>🔐 Decryption Key Required</h3>
@@ -179,7 +169,6 @@
       <div id="loadingStatus" class="status-text"></div>
     </div>
   </div>
-
   <script>
     (function() {
       const basePath = window.location.pathname.replace(/\/[^/]*$/, '') || '';
@@ -198,7 +187,6 @@
         tool3: `${basePath}/encrypted/tool3.html.enc`,
         tool4: `${basePath}/encrypted/tool4.html.enc`
       };
-      // Library filenames to strip from the original HTML
       const LIB_FILENAMES = ['opencv.js', 'pdf.min.js', 'pdf.worker.min.js', 'xlsx.full.min.js', 'jszip.min.js', 'pdf-lib.min.js', 'jspdf.umd.min.js'];
 
       let currentKey = null;
@@ -214,7 +202,6 @@
       const toggleBtn = document.getElementById('toggleSidebarBtn');
       const sidebar = document.getElementById('sidebar');
 
-      // Sidebar collapse
       let isCollapsed = localStorage.getItem('sidebarCollapsed') === 'true';
       function setSidebarCollapsed(collapsed) {
         isCollapsed = collapsed;
@@ -225,7 +212,6 @@
       toggleBtn.addEventListener('click', () => setSidebarCollapsed(!isCollapsed));
       setSidebarCollapsed(isCollapsed);
 
-      // Theme handling
       function applyThemeToParent(theme) {
         document.body.classList.remove('force-light', 'force-dark');
         if (theme === 'light') document.body.classList.add('force-light');
@@ -248,7 +234,6 @@
       }
       themeBtns.forEach(btn => btn.addEventListener('click', () => broadcastTheme(btn.dataset.theme)));
 
-      // Cache all files (libraries + encrypted tools)
       async function cacheAllFiles() {
         const cache = await caches.open('omr-libs');
         const encryptedUrls = Object.values(ENCRYPTED_TOOLS);
@@ -256,7 +241,6 @@
         await cache.addAll(allUrls);
       }
 
-      // Load a library into the parent page (for OpenCV etc.)
       async function loadLibrary(url) {
         const cache = await caches.open('omr-libs');
         let response = await cache.match(url);
@@ -271,7 +255,6 @@
         return new Promise(resolve => script.onload = resolve);
       }
 
-      // Decrypt tool
       async function decryptTool(encryptedUrl, keyBytes) {
         const cache = await caches.open('omr-libs');
         let response = await cache.match(encryptedUrl);
@@ -284,7 +267,6 @@
         return new TextDecoder().decode(plaintext);
       }
 
-      // Inject libraries into the iframe (only once, after the HTML is set)
       async function injectLibrariesIntoIframe(iframeDoc) {
         for (const lib of LIBRARIES) {
           const cache = await caches.open('omr-libs');
@@ -294,17 +276,10 @@
           const blobUrl = URL.createObjectURL(blob);
           const script = iframeDoc.createElement('script');
           script.src = blobUrl;
-          if (lib.includes('opencv.js')) {
-            script.async = true;
-            script.onload = () => {
-              // Notify if needed
-            };
-          }
           iframeDoc.head.appendChild(script);
-          await new Promise(resolve => { script.onload = resolve; });
+          await new Promise(resolve => script.onload = resolve);
           URL.revokeObjectURL(blobUrl);
         }
-        // Also inject theme-bridge.js
         const bridgeUrl = `${basePath}/theme-bridge.js`;
         const bridgeCache = await caches.open('omr-libs');
         let bridgeResp = await bridgeCache.match(bridgeUrl);
@@ -322,29 +297,19 @@
         if (!currentKey) throw new Error('No key');
         const encryptedUrl = ENCRYPTED_TOOLS[toolId];
         let htmlContent = await decryptTool(encryptedUrl, currentKey);
-        
-        // Fix relative paths
         const fixedBase = basePath ? basePath + '/' : '/';
         htmlContent = htmlContent.replace(/\.\.\/libs\//g, fixedBase + 'libs/');
-        
-        // Strip all library script tags from the HTML to prevent double loading
         for (const filename of LIB_FILENAMES) {
-          // Remove <script src="...filename..."></script> (both with and without async/onload)
           const regex = new RegExp(`<script[^>]*${filename.replace('.', '\\.')}[^>]*>\\s*<\\/script>`, 'gi');
           htmlContent = htmlContent.replace(regex, '');
         }
-        // Also remove any self‑closing style or script with opencv.js inside (like the one with onload)
         htmlContent = htmlContent.replace(/<script[^>]*opencv\.js[^>]*>[\s\S]*?<\/script>/gi, '');
-        
-        // Set the iframe content
         iframe.srcdoc = htmlContent;
-        
         iframe.onload = async () => {
           iframe.onload = null;
           try {
             const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
             await injectLibrariesIntoIframe(iframeDoc);
-            // Re-send current theme
             iframe.contentWindow.postMessage({ type: 'theme-change', theme: currentTheme }, '*');
           } catch(e) {
             console.warn('Library injection failed', e);
