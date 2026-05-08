@@ -288,18 +288,18 @@
         }
         libScripts += `<script src="${fixedBase}theme-bridge.js"></script>\n`;
 
-        // Insert library scripts just before </body> (or before </head> if body not present)
-        if (htmlContent.includes('</body>')) {
-          htmlContent = htmlContent.replace('</body>', libScripts + '</body>');
-        } else if (htmlContent.includes('</head>')) {
+        // Insert library scripts into <head> (so they load before any inline script)
+        if (htmlContent.includes('</head>')) {
           htmlContent = htmlContent.replace('</head>', libScripts + '</head>');
+        } else if (htmlContent.includes('<body')) {
+          // If no head, insert right after <body> opening tag
+          htmlContent = htmlContent.replace(/<body[^>]*>/, match => match + libScripts);
         } else {
           htmlContent = libScripts + htmlContent;
         }
 
         iframe.srcdoc = htmlContent;
         iframe.onload = () => {
-          // Re-send theme after iframe loads (libraries already present)
           iframe.contentWindow.postMessage({ type: 'theme-change', theme: currentTheme }, '*');
         };
       }
