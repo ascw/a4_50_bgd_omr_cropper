@@ -168,9 +168,9 @@
       </div>
     </div>
     <div class="theme-panel">
-      <button class="theme-btn" data-theme="light">☀️ </button>
-      <button class="theme-btn" data-theme="dark">🌙 </button>
-      <button class="theme-btn" data-theme="disabled">🚫 </button>
+      <button class="theme-btn" data-theme="light">☀️ <span>Light</span></button>
+      <button class="theme-btn" data-theme="dark">🌙 <span>Dark</span></button>
+      <button class="theme-btn" data-theme="disabled">🚫 <span>Disable</span></button>
     </div>
   </div>
   <div class="main">
@@ -181,7 +181,7 @@
   <div id="keyOverlay" class="key-overlay" style="display: none;">
     <div class="key-card">
       <h3>🔐 Decryption Key Required</h3>
-      <p>This is your first visit or the key was cleared. Enter the decryption key to access tools.</p>
+      <p>Enter the decryption key to access tools.</p>
       <input type="password" id="keyInput" placeholder="Base64 key">
       <div><button id="submitKeyBtn">Unlock & Load</button></div>
       <div id="loadingStatus" class="status-text"></div>
@@ -190,20 +190,22 @@
 
   <script>
     // ==================== CONFIGURATION ====================
+    // Dynamically detect base path (e.g., "/a4_50_bgd_omr/")
+    const basePath = window.location.pathname.replace(/\/[^/]*$/, '') || '';
     const LIBRARIES = [
-      "libs/opencv.js",
-      "libs/pdf.min.js",
-      "libs/pdf.worker.min.js",
-      "libs/xlsx.full.min.js",
-      "libs/jszip.min.js",
-      "libs/pdf-lib.min.js",
-      "libs/jspdf.umd.min.js"
+      `${basePath}/libs/opencv.js`,
+      `${basePath}/libs/pdf.min.js`,
+      `${basePath}/libs/pdf.worker.min.js`,
+      `${basePath}/libs/xlsx.full.min.js`,
+      `${basePath}/libs/jszip.min.js`,
+      `${basePath}/libs/pdf-lib.min.js`,
+      `${basePath}/libs/jspdf.umd.min.js`
     ];
     const ENCRYPTED_TOOLS = {
-      tool1: "encrypted/tool1.html.enc",
-      tool2: "encrypted/tool2.html.enc",
-      tool3: "encrypted/tool3.html.enc",
-      tool4: "encrypted/tool4.html.enc"
+      tool1: `${basePath}/encrypted/tool1.html.enc`,
+      tool2: `${basePath}/encrypted/tool2.html.enc`,
+      tool3: `${basePath}/encrypted/tool3.html.enc`,
+      tool4: `${basePath}/encrypted/tool4.html.enc`
     };
     // ======================================================
 
@@ -230,11 +232,9 @@
       if (collapsed) {
         sidebar.classList.add('collapsed');
         toggleBtn.innerHTML = '▶';
-        toggleBtn.title = 'Expand';
       } else {
         sidebar.classList.remove('collapsed');
         toggleBtn.innerHTML = '◀';
-        toggleBtn.title = 'Collapse';
       }
       localStorage.setItem('sidebarCollapsed', collapsed);
     }
@@ -266,7 +266,7 @@
       btn.addEventListener('click', () => broadcastTheme(btn.dataset.theme));
     });
 
-    // --- Cache libraries (Cache API) ---
+    // --- Cache libraries ---
     async function cacheAllLibraries() {
       const cache = await caches.open('omr-libs');
       const toFetch = LIBRARIES.map(url => new Request(url, { cache: 'reload' }));
@@ -274,7 +274,6 @@
       librariesCached = true;
     }
 
-    // --- Load a library script from cache or network ---
     async function loadLibrary(url) {
       const cache = await caches.open('omr-libs');
       let response = await cache.match(url);
@@ -304,17 +303,20 @@
       return new TextDecoder().decode(plaintext);
     }
 
-    // --- Load a tool into iframe after decryption ---
+    // --- Load a tool into iframe (with path fixing) ---
     async function loadTool(toolId) {
       if (!currentDecryptionKey) throw new Error('No key');
       const encryptedUrl = ENCRYPTED_TOOLS[toolId];
       let htmlContent = await decryptTool(encryptedUrl, currentDecryptionKey);
-      //  Fix relative library paths for blob URL
-    htmlContent = htmlContent.replace(/\.\.\/libs\//g, '/libs/');
-    const blob = new Blob([htmlContent], { type: 'text/html' });
-    const blobUrl = URL.createObjectURL(blob);
-    iframe.src = blobUrl;
-      // Revoke after load to free memory
+      
+      // Fix relative library paths for blob URL
+      // Replace "../libs/" with the correct absolute path
+      const fixedBase = basePath ? basePath + '/' : '/';
+      htmlContent = htmlContent.replace(/\.\.\/libs\//g, fixedBase + 'libs/');
+      
+      const blob = new Blob([htmlContent], { type: 'text/html' });
+      const blobUrl = URL.createObjectURL(blob);
+      iframe.src = blobUrl;
       iframe.onload = () => {
         URL.revokeObjectURL(blobUrl);
         iframe.onload = null;
@@ -323,7 +325,7 @@
       };
     }
 
-    // --- Main initialization (after key provided) ---
+    // --- Main initialization after key provided ---
     async function initializeWithKey(keyBase64) {
       loadingStatus.innerText = '🔑 Decoding key...';
       let keyBytes;
@@ -344,22 +346,19 @@
       }
       loadingStatus.innerText = '✅ Ready! Loading tools...';
       keyOverlay.style.display = 'none';
-      // Load the last active tool
       const lastTool = localStorage.getItem('lastTool') || 'tool1';
       activeTool = lastTool;
       await loadTool(activeTool);
-      // Highlight active button in sidebar
       navButtons.forEach(btn => {
         if (btn.dataset.tool === activeTool) btn.classList.add('active');
         else btn.classList.remove('active');
       });
     }
 
-    // --- Check if key exists in localStorage ---
+    // --- Check saved key ---
     async function checkSavedKey() {
       const savedKey = localStorage.getItem('omr_key');
       if (savedKey) {
-        // Show overlay but with "loading" message, no input needed
         keyOverlay.style.display = 'flex';
         loadingStatus.innerText = '🔐 Saved key found. Unlocking...';
         await initializeWithKey(savedKey);
@@ -369,14 +368,13 @@
       }
     }
 
-    // --- Event: submit key manually ---
     submitKeyBtn.addEventListener('click', async () => {
       const key = keyInput.value.trim();
       if (!key) return;
       await initializeWithKey(key);
     });
 
-    // --- Tool navigation (from sidebar) ---
+    // --- Tool navigation ---
     navButtons.forEach(btn => {
       btn.addEventListener('click', async () => {
         const toolId = btn.dataset.tool;
@@ -393,14 +391,14 @@
       });
     });
 
-    // --- Listen for theme requests from iframe (theme-bridge.js) ---
+    // --- Listen for theme requests from iframe ---
     window.addEventListener('message', (event) => {
       if (event.data && event.data.type === 'theme-request') {
         event.source.postMessage({ type: 'theme-change', theme: currentTheme }, '*');
       }
     });
 
-    // --- Service Worker registration for offline ---
+    // --- Service Worker registration (optional, skip if fails) ---
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('sw.js').catch(err => console.warn('SW registration failed:', err));
     }
