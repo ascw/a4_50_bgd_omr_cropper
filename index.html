@@ -2,9 +2,10 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>OMR Suite – Private Tools</title>
+  <title>OMR Suite</title>
   <link rel="manifest" href="manifest.json">
   <style>
+    /* same styling as before – keep it */
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
       display: flex;
@@ -32,7 +33,6 @@
     .sidebar.collapsed .theme-panel .theme-btn span { display: none; }
     .sidebar.collapsed .nav-buttons button { text-align: center; padding: 0.75rem 0; }
     .sidebar.collapsed .theme-panel { flex-direction: column; align-items: center; gap: 0.5rem; }
-    .sidebar.collapsed .theme-panel .theme-btn { padding: 6px; font-size: 1.2rem; }
     .nav-buttons {
       padding: 1.5rem 0;
       display: flex;
@@ -47,7 +47,6 @@
       text-align: left;
       font-size: 1rem;
       cursor: pointer;
-      font-family: inherit;
       width: 100%;
       transition: 0.1s;
     }
@@ -65,13 +64,11 @@
       width: auto;
     }
     .toggle-btn:hover { color: #00e5ff; }
-    .sidebar.collapsed .toggle-btn { margin: 0.5rem auto 0 auto; }
     .theme-panel {
       padding: 1rem 1.5rem;
       border-top: 1px solid #2d3748;
       display: flex;
       gap: 0.5rem;
-      transition: all 0.2s;
     }
     .theme-btn {
       background: #1f2937;
@@ -94,15 +91,14 @@
       padding: 0.5rem 1rem;
       font-size: 0.8rem;
       border-bottom: 1px solid #2d3748;
-      flex-shrink: 0;
     }
     iframe {
       width: 100%;
       height: 100%;
       border: none;
       background: #0a0e14;
-      flex: 1;
     }
+    /* scrollbar and theme overrides as before */
     ::-webkit-scrollbar { width: 10px; height: 10px; }
     ::-webkit-scrollbar-track { background: #1e2937; border-radius: 4px; }
     ::-webkit-scrollbar-thumb { background: #3b4b62; border-radius: 4px; }
@@ -114,10 +110,11 @@
     .force-light { scrollbar-color: #94a3b8 #e2e8f0 !important; }
     .force-dark { scrollbar-color: #3b4b62 #1e2937 !important; }
     .force-light, .force-light * { background-color: #ffffff !important; color: #000000 !important; }
-    .force-light button, .force-light .theme-btn { background-color: #e0e0e0 !important; color: #000000 !important; border-color: #cccccc !important; }
+    .force-light button, .force-light .theme-btn { background-color: #e0e0e0 !important; color: #000000 !important; }
     .force-light a, .force-light a * { color: #0000ee !important; }
     .force-dark, .force-dark * { background-color: #1a1a1a !important; color: #f5e6a3 !important; border-color: #444444 !important; }
     .force-dark a, .force-dark a * { color: #ffcc66 !important; }
+    /* Key overlay */
     .key-overlay {
       position: fixed;
       top: 0; left: 0; right: 0; bottom: 0;
@@ -142,7 +139,9 @@
 <body>
   <div class="sidebar" id="sidebar">
     <div style="display: flex; flex-direction: column; flex: 1;">
-      <div><button class="toggle-btn" id="toggleSidebarBtn">◀</button></div>
+      <div style="display: flex; justify-content: flex-end;">
+        <button class="toggle-btn" id="toggleSidebarBtn">◀</button>
+      </div>
       <div class="nav-buttons">
         <button data-tool="tool1">📝 <span>OMR Grader</span></button>
         <button data-tool="tool2">✂️ <span>PDF Auto Crop</span></button>
@@ -158,61 +157,46 @@
   </div>
   <div class="main">
     <div class="toolbar">Select a tool →</div>
-    <iframe id="toolFrame" srcdoc="<html><body style='background:#0a0e14;color:white;text-align:center;padding:2rem'>Loading tool...</body></html>"></iframe>
+    <iframe id="contentFrame" src="tool1.html"></iframe>
   </div>
   <div id="keyOverlay" class="key-overlay" style="display: none;">
     <div class="key-card">
       <h3>🔐 Decryption Key Required</h3>
-      <p>Enter the decryption key to access tools.</p>
+      <p>Enter the decryption key to unlock tools.</p>
       <input type="password" id="keyInput" placeholder="Base64 key">
-      <div><button id="submitKeyBtn">Unlock & Load</button></div>
+      <div><button id="submitKeyBtn">Unlock</button></div>
       <div id="loadingStatus" class="status-text"></div>
     </div>
   </div>
   <script>
     (function() {
-      const basePath = window.location.pathname.replace(/\/[^/]*$/, '') || '';
-      // Use raw GitHub URLs to avoid any path resolution issues
-      const rawBase = 'https://raw.githubusercontent.com/ascw/a4_50_bgd_omr/refs/heads/main';
-      const LIBRARIES = [
-        `${rawBase}/libs/opencv.js`,
-        `${rawBase}/libs/pdf.min.js`,
-        `${rawBase}/libs/pdf.worker.min.js`,
-        `${rawBase}/libs/xlsx.full.min.js`,
-        `${rawBase}/libs/jszip.min.js`,
-        `${rawBase}/libs/pdf-lib.min.js`,
-        `${rawBase}/libs/jspdf.umd.min.js`
-      ];
-      const ENCRYPTED_TOOLS = {
-        tool1: `${basePath}/encrypted/tool1.html.enc`,
-        tool2: `${basePath}/encrypted/tool2.html.enc`,
-        tool3: `${basePath}/encrypted/tool3.html.enc`,
-        tool4: `${basePath}/encrypted/tool4.html.enc`
-      };
-
-      let currentKey = null;
-      let currentTheme = localStorage.getItem('appTheme') || 'disabled';
-      let activeTool = 'tool1';
-      const iframe = document.getElementById('toolFrame');
+      // Sidebar, theme handling (same as before)
+      const sidebar = document.getElementById('sidebar');
+      const toggleBtn = document.getElementById('toggleSidebarBtn');
+      const navButtons = document.querySelectorAll('.nav-buttons button');
+      const themeBtns = document.querySelectorAll('.theme-btn');
+      const iframe = document.getElementById('contentFrame');
       const keyOverlay = document.getElementById('keyOverlay');
       const keyInput = document.getElementById('keyInput');
       const submitBtn = document.getElementById('submitKeyBtn');
       const loadingStatus = document.getElementById('loadingStatus');
-      const navButtons = document.querySelectorAll('.nav-buttons button');
-      const themeBtns = document.querySelectorAll('.theme-btn');
-      const toggleBtn = document.getElementById('toggleSidebarBtn');
-      const sidebar = document.getElementById('sidebar');
 
       let isCollapsed = localStorage.getItem('sidebarCollapsed') === 'true';
       function setSidebarCollapsed(collapsed) {
         isCollapsed = collapsed;
-        sidebar.classList.toggle('collapsed', collapsed);
-        toggleBtn.innerHTML = collapsed ? '▶' : '◀';
+        if (collapsed) {
+          sidebar.classList.add('collapsed');
+          toggleBtn.innerHTML = '▶';
+        } else {
+          sidebar.classList.remove('collapsed');
+          toggleBtn.innerHTML = '◀';
+        }
         localStorage.setItem('sidebarCollapsed', collapsed);
       }
       toggleBtn.addEventListener('click', () => setSidebarCollapsed(!isCollapsed));
       setSidebarCollapsed(isCollapsed);
 
+      let currentTheme = localStorage.getItem('appTheme') || 'disabled';
       function applyThemeToParent(theme) {
         document.body.classList.remove('force-light', 'force-dark');
         if (theme === 'light') document.body.classList.add('force-light');
@@ -229,188 +213,112 @@
         localStorage.setItem('appTheme', theme);
         setThemeActive(theme);
         applyThemeToParent(theme);
-        try {
+        if (iframe.contentWindow) {
           iframe.contentWindow.postMessage({ type: 'theme-change', theme }, '*');
-        } catch(e) {}
+        }
       }
       themeBtns.forEach(btn => btn.addEventListener('click', () => broadcastTheme(btn.dataset.theme)));
 
-      async function cacheAllFiles() {
-        const cache = await caches.open('omr-libs');
-        const encryptedUrls = Object.values(ENCRYPTED_TOOLS);
-        const allUrls = [...LIBRARIES, ...encryptedUrls];
-        await cache.addAll(allUrls);
-      }
-
-      async function loadLibrary(url) {
-        const cache = await caches.open('omr-libs');
-        let response = await cache.match(url);
-        if (!response) {
-          response = await fetch(url);
-          if (response.ok) await cache.put(url, response.clone());
-        }
-        const blob = await response.blob();
-        const script = document.createElement('script');
-        script.src = URL.createObjectURL(blob);
-        document.head.appendChild(script);
-        return new Promise(resolve => script.onload = resolve);
-      }
-
-      async function decryptTool(encryptedUrl, keyBytes) {
-        const cache = await caches.open('omr-libs');
-        let response = await cache.match(encryptedUrl);
-        if (!response) response = await fetch(encryptedUrl);
-        const encryptedBlob = await response.arrayBuffer();
-        const nonce = encryptedBlob.slice(0, 12);
-        const ciphertext = encryptedBlob.slice(12);
-        const cryptoKey = await crypto.subtle.importKey('raw', keyBytes, { name: 'AES-GCM' }, false, ['decrypt']);
-        const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: nonce }, cryptoKey, ciphertext);
-        return new TextDecoder().decode(plaintext);
-      }
-
-      // Helper: wrap the tool's main script inside a DOMContentLoaded listener
-      function deferToolScript(htmlContent) {
-        // Find the main script block that contains pdfjsLib.GlobalWorkerOptions
-        // We'll extract all script tags and re-insert them after libraries, but simpler:
-        // Replace the entire script block that contains the grading logic with a deferred version.
-        // Since the tool has a huge inline script (starting with "// --- Log panel setup ---"),
-        // we can cache it and then run it after libraries load.
-        // But easier: we'll insert a small script at the beginning that sets a flag and then
-        // append the original script later.
-        // However, the iframe's srcdoc loads scripts synchronously. We will instead
-        // load libraries first (using onload) and then inject the tool's script.
-        // To avoid complexity, we will not modify the tool HTML at all. Instead, we
-        // will load the libraries manually in the iframe and then evaluate the tool's
-        // script after the libraries are ready.
-        // This requires extracting the tool's script content.
-        
-        // For simplicity, we will load the tool HTML without its inline script,
-        // then run the script ourselves after libraries are loaded.
-        // Extract the content inside the main <script> tag (the one that contains the grading logic)
-        const scriptMatch = htmlContent.match(/<script>([\s\S]*?)<\/script>/);
-        if (!scriptMatch) return htmlContent;
-        const toolScript = scriptMatch[1];
-        // Remove that script from the HTML
-        let newHtml = htmlContent.replace(/<script>[\s\S]*?<\/script>/, '');
-        // Add a placeholder div where we will run the script later
-        newHtml = newHtml.replace('</body>', '<div id="scriptPlaceholder"></div></body>');
-        return { newHtml, toolScript };
-      }
-
-      async function loadTool(toolId) {
-        if (!currentKey) throw new Error('No key');
-        const encryptedUrl = ENCRYPTED_TOOLS[toolId];
-        let htmlContent = await decryptTool(encryptedUrl, currentKey);
-        // Fix relative library paths (though we will use raw URLs later)
-        const fixedBase = basePath ? basePath + '/' : '/';
-        htmlContent = htmlContent.replace(/\.\.\/libs\//g, fixedBase + 'libs/');
-        
-        // Remove existing library script tags
-        htmlContent = htmlContent.replace(/<script[^>]*src=.*?(?:opencv\.js|pdf\.min\.js|pdf\.worker\.min\.js|xlsx\.full\.min\.js|jszip\.min\.js|pdf-lib\.min\.js|jspdf\.umd\.min\.js)[^>]*>[\s\S]*?<\/script>/gi, '');
-        htmlContent = htmlContent.replace(/<script[^>]*opencv\.js[^>]*>[\s\S]*?<\/script>/gi, '');
-        
-        // Extract tool's main script and remove it from HTML (we will run it after libraries load)
-        let toolScript = '';
-        const scriptRegex = /<script>([\s\S]*?)<\/script>/;
-        const match = htmlContent.match(scriptRegex);
-        if (match) {
-          toolScript = match[1];
-          htmlContent = htmlContent.replace(scriptRegex, '');
-        }
-        
-        // Set iframe content (without the main script)
-        iframe.srcdoc = htmlContent;
-        
-        iframe.onload = async () => {
-          const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
-          // Load libraries sequentially using raw GitHub URLs
-          for (const lib of LIBRARIES) {
-            const script = iframeDoc.createElement('script');
-            script.src = lib;
-            iframeDoc.head.appendChild(script);
-            await new Promise(resolve => script.onload = resolve);
-          }
-          // Also load theme-bridge.js
-          const bridgeScript = iframeDoc.createElement('script');
-          bridgeScript.src = `${rawBase}/theme-bridge.js`;
-          iframeDoc.head.appendChild(bridgeScript);
-          await new Promise(resolve => bridgeScript.onload = resolve);
-          
-          // Now inject and execute the tool's original script (which now can use pdfjsLib)
-          const toolScriptElem = iframeDoc.createElement('script');
-          toolScriptElem.textContent = toolScript;
-          iframeDoc.body.appendChild(toolScriptElem);
-          
-          // Re-send theme
-          iframe.contentWindow.postMessage({ type: 'theme-change', theme: currentTheme }, '*');
-        };
-      }
-
-      async function initializeWithKey(keyBase64) {
-        let keyBytes;
-        try {
-          keyBytes = Uint8Array.from(atob(keyBase64), c => c.charCodeAt(0));
-          if (keyBytes.length !== 32) throw new Error();
-        } catch(e) {
-          loadingStatus.innerText = '❌ Invalid key.';
-          return;
-        }
-        currentKey = keyBytes;
-        localStorage.setItem('omr_key', keyBase64);
-        loadingStatus.innerText = '📦 Caching files...';
-        await cacheAllFiles();
-        loadingStatus.innerText = '📚 Loading libraries (parent)...';
-        for (const lib of LIBRARIES) await loadLibrary(lib);
-        loadingStatus.innerText = '✅ Ready! Loading tool...';
-        keyOverlay.style.display = 'none';
-        const lastTool = localStorage.getItem('lastTool') || 'tool1';
-        activeTool = lastTool;
-        await loadTool(activeTool);
+      function setActiveTool(toolId) {
         navButtons.forEach(btn => {
-          if (btn.dataset.tool === activeTool) btn.classList.add('active');
-          else btn.classList.remove('active');
+          if (btn.dataset.tool === toolId) {
+            btn.classList.add('active');
+            iframe.src = `${toolId}.html`;
+          } else {
+            btn.classList.remove('active');
+          }
+        });
+      }
+      navButtons.forEach(btn => btn.addEventListener('click', () => setActiveTool(btn.dataset.tool)));
+      const lastTool = localStorage.getItem('lastTool') || 'tool1';
+      setActiveTool(lastTool);
+      iframe.addEventListener('load', () => {
+        const current = iframe.src.split('/').pop().replace('.html', '');
+        localStorage.setItem('lastTool', current);
+        iframe.contentWindow.postMessage({ type: 'theme-change', theme: currentTheme }, '*');
+      });
+
+      // Manage key in IndexedDB for service worker
+      async function storeKeyInIndexedDB(keyBase64) {
+        return new Promise((resolve, reject) => {
+          const request = indexedDB.open('omr_key_db', 1);
+          request.onupgradeneeded = () => {
+            const db = request.result;
+            if (!db.objectStoreNames.contains('keys')) {
+              db.createObjectStore('keys');
+            }
+          };
+          request.onsuccess = () => {
+            const db = request.result;
+            const tx = db.transaction('keys', 'readwrite');
+            const store = tx.objectStore('keys');
+            store.put(keyBase64, 'aes-key');
+            tx.oncomplete = () => {
+              db.close();
+              resolve();
+            };
+            tx.onerror = () => reject(tx.error);
+          };
+          request.onerror = () => reject(request.error);
         });
       }
 
-      async function checkSavedKey() {
-        const savedKey = localStorage.getItem('omr_key');
-        if (savedKey) {
-          keyOverlay.style.display = 'flex';
-          loadingStatus.innerText = '🔐 Saved key found. Unlocking...';
-          await initializeWithKey(savedKey);
+      async function checkKeyExists() {
+        return new Promise((resolve) => {
+          const request = indexedDB.open('omr_key_db', 1);
+          request.onupgradeneeded = () => {}; // ignore
+          request.onsuccess = () => {
+            const db = request.result;
+            const tx = db.transaction('keys', 'readonly');
+            const store = tx.objectStore('keys');
+            const get = store.get('aes-key');
+            get.onsuccess = () => {
+              resolve(!!get.result);
+              db.close();
+            };
+            get.onerror = () => resolve(false);
+          };
+          request.onerror = () => resolve(false);
+        });
+      }
+
+      async function checkAndReload() {
+        const hasKey = await checkKeyExists();
+        if (hasKey) {
+          keyOverlay.style.display = 'none';
+          // Reload iframe to trigger SW decryption
+          iframe.src = iframe.src;
         } else {
           keyOverlay.style.display = 'flex';
-          loadingStatus.innerText = 'Enter decryption key to continue.';
         }
       }
 
       submitBtn.addEventListener('click', async () => {
         const key = keyInput.value.trim();
         if (!key) return;
-        await initializeWithKey(key);
-      });
-
-      navButtons.forEach(btn => {
-        btn.addEventListener('click', async () => {
-          const toolId = btn.dataset.tool;
-          if (!toolId || !currentKey) return;
-          activeTool = toolId;
-          localStorage.setItem('lastTool', toolId);
-          await loadTool(toolId);
-          navButtons.forEach(b => b.classList.remove('active'));
-          btn.classList.add('active');
-        });
-      });
-
-      window.addEventListener('message', (event) => {
-        if (event.data && event.data.type === 'theme-request') {
-          event.source.postMessage({ type: 'theme-change', theme: currentTheme }, '*');
+        loadingStatus.innerText = 'Storing key...';
+        try {
+          await storeKeyInIndexedDB(key);
+          loadingStatus.innerText = 'Key stored. Reloading...';
+          // Reload the page so the service worker can use the key
+          window.location.reload();
+        } catch(e) {
+          loadingStatus.innerText = 'Error storing key.';
         }
       });
 
       applyThemeToParent(currentTheme);
       setThemeActive(currentTheme);
-      checkSavedKey();
+      
+      // Register service worker
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('sw.js').then(() => {
+          console.log('SW registered');
+          checkAndReload();
+        }).catch(err => console.warn('SW reg failed', err));
+      } else {
+        checkAndReload();
+      }
     })();
   </script>
 </body>
