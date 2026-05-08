@@ -172,14 +172,16 @@
   <script>
     (function() {
       const basePath = window.location.pathname.replace(/\/[^/]*$/, '') || '';
+      // Use raw GitHub URLs to avoid any path resolution issues
+      const rawBase = 'https://raw.githubusercontent.com/ascw/a4_50_bgd_omr/refs/heads/main';
       const LIBRARIES = [
-        `${basePath}/libs/opencv.js`,
-        `${basePath}/libs/pdf.min.js`,
-        `${basePath}/libs/pdf.worker.min.js`,
-        `${basePath}/libs/xlsx.full.min.js`,
-        `${basePath}/libs/jszip.min.js`,
-        `${basePath}/libs/pdf-lib.min.js`,
-        `${basePath}/libs/jspdf.umd.min.js`
+        `${rawBase}/libs/opencv.js`,
+        `${rawBase}/libs/pdf.min.js`,
+        `${rawBase}/libs/pdf.worker.min.js`,
+        `${rawBase}/libs/xlsx.full.min.js`,
+        `${rawBase}/libs/jszip.min.js`,
+        `${rawBase}/libs/pdf-lib.min.js`,
+        `${rawBase}/libs/jspdf.umd.min.js`
       ];
       const ENCRYPTED_TOOLS = {
         tool1: `${basePath}/encrypted/tool1.html.enc`,
@@ -266,50 +268,80 @@
         return new TextDecoder().decode(plaintext);
       }
 
+      // Helper: wrap the tool's main script inside a DOMContentLoaded listener
+      function deferToolScript(htmlContent) {
+        // Find the main script block that contains pdfjsLib.GlobalWorkerOptions
+        // We'll extract all script tags and re-insert them after libraries, but simpler:
+        // Replace the entire script block that contains the grading logic with a deferred version.
+        // Since the tool has a huge inline script (starting with "// --- Log panel setup ---"),
+        // we can cache it and then run it after libraries load.
+        // But easier: we'll insert a small script at the beginning that sets a flag and then
+        // append the original script later.
+        // However, the iframe's srcdoc loads scripts synchronously. We will instead
+        // load libraries first (using onload) and then inject the tool's script.
+        // To avoid complexity, we will not modify the tool HTML at all. Instead, we
+        // will load the libraries manually in the iframe and then evaluate the tool's
+        // script after the libraries are ready.
+        // This requires extracting the tool's script content.
+        
+        // For simplicity, we will load the tool HTML without its inline script,
+        // then run the script ourselves after libraries are loaded.
+        // Extract the content inside the main <script> tag (the one that contains the grading logic)
+        const scriptMatch = htmlContent.match(/<script>([\s\S]*?)<\/script>/);
+        if (!scriptMatch) return htmlContent;
+        const toolScript = scriptMatch[1];
+        // Remove that script from the HTML
+        let newHtml = htmlContent.replace(/<script>[\s\S]*?<\/script>/, '');
+        // Add a placeholder div where we will run the script later
+        newHtml = newHtml.replace('</body>', '<div id="scriptPlaceholder"></div></body>');
+        return { newHtml, toolScript };
+      }
+
       async function loadTool(toolId) {
         if (!currentKey) throw new Error('No key');
         const encryptedUrl = ENCRYPTED_TOOLS[toolId];
         let htmlContent = await decryptTool(encryptedUrl, currentKey);
+        // Fix relative library paths (though we will use raw URLs later)
         const fixedBase = basePath ? basePath + '/' : '/';
-        // Fix relative library paths
         htmlContent = htmlContent.replace(/\.\.\/libs\//g, fixedBase + 'libs/');
-        // Remove any existing library script tags to avoid duplication
+        
+        // Remove existing library script tags
         htmlContent = htmlContent.replace(/<script[^>]*src=.*?(?:opencv\.js|pdf\.min\.js|pdf\.worker\.min\.js|xlsx\.full\.min\.js|jszip\.min\.js|pdf-lib\.min\.js|jspdf\.umd\.min\.js)[^>]*>[\s\S]*?<\/script>/gi, '');
-        // Also remove inline opencv script if any
         htmlContent = htmlContent.replace(/<script[^>]*opencv\.js[^>]*>[\s\S]*?<\/script>/gi, '');
         
-        // We will NOT inject library scripts here; instead, we'll inject them after iframe loads
+        // Extract tool's main script and remove it from HTML (we will run it after libraries load)
+        let toolScript = '';
+        const scriptRegex = /<script>([\s\S]*?)<\/script>/;
+        const match = htmlContent.match(scriptRegex);
+        if (match) {
+          toolScript = match[1];
+          htmlContent = htmlContent.replace(scriptRegex, '');
+        }
+        
+        // Set iframe content (without the main script)
         iframe.srcdoc = htmlContent;
         
         iframe.onload = async () => {
-          // Now inject all libraries into the iframe's head
           const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+          // Load libraries sequentially using raw GitHub URLs
           for (const lib of LIBRARIES) {
-            const cache = await caches.open('omr-libs');
-            let response = await cache.match(lib);
-            if (!response) response = await fetch(lib);
-            const blob = await response.blob();
-            const blobUrl = URL.createObjectURL(blob);
             const script = iframeDoc.createElement('script');
-            script.src = blobUrl;
+            script.src = lib;
             iframeDoc.head.appendChild(script);
             await new Promise(resolve => script.onload = resolve);
-            URL.revokeObjectURL(blobUrl);
           }
-          // Also inject theme-bridge.js
-          const bridgeUrl = `${fixedBase}theme-bridge.js`;
-          const bridgeCache = await caches.open('omr-libs');
-          let bridgeResp = await bridgeCache.match(bridgeUrl);
-          if (!bridgeResp) bridgeResp = await fetch(bridgeUrl);
-          const bridgeBlob = await bridgeResp.blob();
-          const bridgeBlobUrl = URL.createObjectURL(bridgeBlob);
+          // Also load theme-bridge.js
           const bridgeScript = iframeDoc.createElement('script');
-          bridgeScript.src = bridgeBlobUrl;
+          bridgeScript.src = `${rawBase}/theme-bridge.js`;
           iframeDoc.head.appendChild(bridgeScript);
           await new Promise(resolve => bridgeScript.onload = resolve);
-          URL.revokeObjectURL(bridgeBlobUrl);
           
-          // After all libraries are loaded, re-send theme
+          // Now inject and execute the tool's original script (which now can use pdfjsLib)
+          const toolScriptElem = iframeDoc.createElement('script');
+          toolScriptElem.textContent = toolScript;
+          iframeDoc.body.appendChild(toolScriptElem);
+          
+          // Re-send theme
           iframe.contentWindow.postMessage({ type: 'theme-change', theme: currentTheme }, '*');
         };
       }
