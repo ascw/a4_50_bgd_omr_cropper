@@ -267,53 +267,40 @@
         return new TextDecoder().decode(plaintext);
       }
 
-      async function injectLibrariesIntoIframe(iframeDoc) {
-        for (const lib of LIBRARIES) {
-          const cache = await caches.open('omr-libs');
-          let response = await cache.match(lib);
-          if (!response) response = await fetch(lib);
-          const blob = await response.blob();
-          const blobUrl = URL.createObjectURL(blob);
-          const script = iframeDoc.createElement('script');
-          script.src = blobUrl;
-          iframeDoc.head.appendChild(script);
-          await new Promise(resolve => script.onload = resolve);
-          URL.revokeObjectURL(blobUrl);
-        }
-        const bridgeUrl = `${basePath}/theme-bridge.js`;
-        const bridgeCache = await caches.open('omr-libs');
-        let bridgeResp = await bridgeCache.match(bridgeUrl);
-        if (!bridgeResp) bridgeResp = await fetch(bridgeUrl);
-        const bridgeBlob = await bridgeResp.blob();
-        const bridgeBlobUrl = URL.createObjectURL(bridgeBlob);
-        const bridgeScript = iframeDoc.createElement('script');
-        bridgeScript.src = bridgeBlobUrl;
-        iframeDoc.head.appendChild(bridgeScript);
-        await new Promise(resolve => bridgeScript.onload = resolve);
-        URL.revokeObjectURL(bridgeBlobUrl);
-      }
-
       async function loadTool(toolId) {
         if (!currentKey) throw new Error('No key');
         const encryptedUrl = ENCRYPTED_TOOLS[toolId];
         let htmlContent = await decryptTool(encryptedUrl, currentKey);
         const fixedBase = basePath ? basePath + '/' : '/';
         htmlContent = htmlContent.replace(/\.\.\/libs\//g, fixedBase + 'libs/');
+
+        // Remove existing library script tags from decrypted HTML
         for (const filename of LIB_FILENAMES) {
           const regex = new RegExp(`<script[^>]*${filename.replace('.', '\\.')}[^>]*>\\s*<\\/script>`, 'gi');
           htmlContent = htmlContent.replace(regex, '');
         }
         htmlContent = htmlContent.replace(/<script[^>]*opencv\.js[^>]*>[\s\S]*?<\/script>/gi, '');
+
+        // Build new library script tags (absolute URLs)
+        let libScripts = '';
+        for (const lib of LIBRARIES) {
+          libScripts += `<script src="${lib}"></script>\n`;
+        }
+        libScripts += `<script src="${fixedBase}theme-bridge.js"></script>\n`;
+
+        // Insert library scripts just before </body> (or before </head> if body not present)
+        if (htmlContent.includes('</body>')) {
+          htmlContent = htmlContent.replace('</body>', libScripts + '</body>');
+        } else if (htmlContent.includes('</head>')) {
+          htmlContent = htmlContent.replace('</head>', libScripts + '</head>');
+        } else {
+          htmlContent = libScripts + htmlContent;
+        }
+
         iframe.srcdoc = htmlContent;
-        iframe.onload = async () => {
-          iframe.onload = null;
-          try {
-            const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
-            await injectLibrariesIntoIframe(iframeDoc);
-            iframe.contentWindow.postMessage({ type: 'theme-change', theme: currentTheme }, '*');
-          } catch(e) {
-            console.warn('Library injection failed', e);
-          }
+        iframe.onload = () => {
+          // Re-send theme after iframe loads (libraries already present)
+          iframe.contentWindow.postMessage({ type: 'theme-change', theme: currentTheme }, '*');
         };
       }
 
