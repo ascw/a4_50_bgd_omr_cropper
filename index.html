@@ -308,7 +308,7 @@
     async function loadTool(toolId) {
       if (!currentDecryptionKey) throw new Error('No key');
       const encryptedUrl = ENCRYPTED_TOOLS[toolId];
-      const htmlContent = await decryptTool(encryptedUrl, currentDecryptionKey);
+      let htmlContent = await decryptTool(encryptedUrl, currentDecryptionKey);
       //  Fix relative library paths for blob URL
     htmlContent = htmlContent.replace(/\.\.\/libs\//g, '/libs/');
     const blob = new Blob([htmlContent], { type: 'text/html' });
