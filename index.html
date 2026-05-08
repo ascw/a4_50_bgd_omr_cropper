@@ -98,7 +98,6 @@
       border: none;
       background: #0a0e14;
     }
-    /* scrollbar and theme overrides as before */
     ::-webkit-scrollbar { width: 10px; height: 10px; }
     ::-webkit-scrollbar-track { background: #1e2937; border-radius: 4px; }
     ::-webkit-scrollbar-thumb { background: #3b4b62; border-radius: 4px; }
@@ -114,7 +113,6 @@
     .force-light a, .force-light a * { color: #0000ee !important; }
     .force-dark, .force-dark * { background-color: #1a1a1a !important; color: #f5e6a3 !important; border-color: #444444 !important; }
     .force-dark a, .force-dark a * { color: #ffcc66 !important; }
-    /* Key overlay */
     .key-overlay {
       position: fixed;
       top: 0; left: 0; right: 0; bottom: 0;
@@ -170,7 +168,9 @@
   </div>
   <script>
     (function() {
-      // Sidebar, theme handling (same as before)
+      const BASE_PATH = '/a4_50_bgd_omr'; // adjust if different
+
+      // Sidebar toggle
       const sidebar = document.getElementById('sidebar');
       const toggleBtn = document.getElementById('toggleSidebarBtn');
       const navButtons = document.querySelectorAll('.nav-buttons button');
@@ -196,6 +196,7 @@
       toggleBtn.addEventListener('click', () => setSidebarCollapsed(!isCollapsed));
       setSidebarCollapsed(isCollapsed);
 
+      // Theme handling
       let currentTheme = localStorage.getItem('appTheme') || 'disabled';
       function applyThemeToParent(theme) {
         document.body.classList.remove('force-light', 'force-dark');
@@ -219,6 +220,7 @@
       }
       themeBtns.forEach(btn => btn.addEventListener('click', () => broadcastTheme(btn.dataset.theme)));
 
+      // Tool navigation
       function setActiveTool(toolId) {
         navButtons.forEach(btn => {
           if (btn.dataset.tool === toolId) {
@@ -238,61 +240,49 @@
         iframe.contentWindow.postMessage({ type: 'theme-change', theme: currentTheme }, '*');
       });
 
-      // Manage key in IndexedDB for service worker
-      async function storeKeyInIndexedDB(keyBase64) {
+      // IndexedDB key management (for service worker)
+      function openKeyDB() {
         return new Promise((resolve, reject) => {
           const request = indexedDB.open('omr_key_db', 1);
           request.onupgradeneeded = () => {
             const db = request.result;
-            if (!db.objectStoreNames.contains('keys')) {
-              db.createObjectStore('keys');
-            }
+            if (!db.objectStoreNames.contains('keys')) db.createObjectStore('keys');
           };
-          request.onsuccess = () => {
-            const db = request.result;
-            const tx = db.transaction('keys', 'readwrite');
-            const store = tx.objectStore('keys');
-            store.put(keyBase64, 'aes-key');
-            tx.oncomplete = () => {
-              db.close();
-              resolve();
-            };
-            tx.onerror = () => reject(tx.error);
-          };
+          request.onsuccess = () => resolve(request.result);
           request.onerror = () => reject(request.error);
         });
       }
-
-      async function checkKeyExists() {
-        return new Promise((resolve) => {
-          const request = indexedDB.open('omr_key_db', 1);
-          request.onupgradeneeded = () => {}; // ignore
-          request.onsuccess = () => {
-            const db = request.result;
-            const tx = db.transaction('keys', 'readonly');
-            const store = tx.objectStore('keys');
-            const get = store.get('aes-key');
-            get.onsuccess = () => {
-              resolve(!!get.result);
-              db.close();
-            };
-            get.onerror = () => resolve(false);
+      async function storeKeyInIndexedDB(keyBase64) {
+        const db = await openKeyDB();
+        return new Promise((resolve, reject) => {
+          const tx = db.transaction('keys', 'readwrite');
+          const store = tx.objectStore('keys');
+          store.put(keyBase64, 'aes-key');
+          tx.oncomplete = () => {
+            db.close();
+            resolve();
           };
-          request.onerror = () => resolve(false);
+          tx.onerror = () => reject(tx.error);
+        });
+      }
+      async function checkKeyExists() {
+        const db = await openKeyDB();
+        return new Promise((resolve) => {
+          const tx = db.transaction('keys', 'readonly');
+          const store = tx.objectStore('keys');
+          const get = store.get('aes-key');
+          get.onsuccess = () => {
+            resolve(!!get.result);
+            db.close();
+          };
+          get.onerror = () => {
+            resolve(false);
+            db.close();
+          };
         });
       }
 
-      async function checkAndReload() {
-        const hasKey = await checkKeyExists();
-        if (hasKey) {
-          keyOverlay.style.display = 'none';
-          // Reload iframe to trigger SW decryption
-          iframe.src = iframe.src;
-        } else {
-          keyOverlay.style.display = 'flex';
-        }
-      }
-
+      // Reload the page after key is stored, so the SW can use it
       submitBtn.addEventListener('click', async () => {
         const key = keyInput.value.trim();
         if (!key) return;
@@ -300,23 +290,46 @@
         try {
           await storeKeyInIndexedDB(key);
           loadingStatus.innerText = 'Key stored. Reloading...';
-          // Reload the page so the service worker can use the key
-          window.location.reload();
+          setTimeout(() => window.location.reload(), 500);
         } catch(e) {
           loadingStatus.innerText = 'Error storing key.';
         }
       });
 
+      async function checkAndReload() {
+        const hasKey = await checkKeyExists();
+        if (hasKey) {
+          keyOverlay.style.display = 'none';
+          // If the iframe already shows a 404, force reload it to trigger SW interception
+          iframe.src = iframe.src;
+        } else {
+          keyOverlay.style.display = 'flex';
+        }
+      }
+
       applyThemeToParent(currentTheme);
       setThemeActive(currentTheme);
       
-      // Register service worker
+      // Register service worker with explicit scope
       if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('sw.js').then(() => {
-          console.log('SW registered');
-          checkAndReload();
-        }).catch(err => console.warn('SW reg failed', err));
+        navigator.serviceWorker.register(`${BASE_PATH}/sw.js`, { scope: `${BASE_PATH}/` })
+          .then(reg => {
+            console.log('SW registered with scope:', reg.scope);
+            // Wait for SW to be ready before reloading iframe
+            if (reg.active) {
+              checkAndReload();
+            } else {
+              reg.addEventListener('updatefound', () => {
+                const newWorker = reg.installing;
+                newWorker.addEventListener('statechange', () => {
+                  if (newWorker.state === 'activated') checkAndReload();
+                });
+              });
+            }
+          })
+          .catch(err => console.warn('SW registration failed:', err));
       } else {
+        console.warn('Service Worker not supported');
         checkAndReload();
       }
     })();
