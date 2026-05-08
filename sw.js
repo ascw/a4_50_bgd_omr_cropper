@@ -1,21 +1,17 @@
 const CACHE_NAME = 'omr-v1';
 const urlsToCache = [
-  '/',
+  '/',                       // your site root
   '/index.html',
+  '/sw.js',
   '/manifest.json',
-  // Libraries (will be cached dynamically, but list them for offline)
+  '/theme-bridge.js',        // <-- must exist in root
   '/libs/opencv.js',
   '/libs/pdf.min.js',
   '/libs/pdf.worker.min.js',
   '/libs/xlsx.full.min.js',
   '/libs/jszip.min.js',
   '/libs/pdf-lib.min.js',
-  '/libs/jspdf.umd.min.js',
-  // Encrypted tool files
-  '/encrypted/tool1.html.enc',
-  '/encrypted/tool2.html.enc',
-  '/encrypted/tool3.html.enc',
-  '/encrypted/tool4.html.enc'
+  '/libs/jspdf.umd.min.js'
 ];
 
 self.addEventListener('install', event => {
