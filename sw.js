@@ -1,8 +1,11 @@
 // sw.js – caches and decrypts tool files
 const CACHE_NAME = 'omr-v3';
-const BASE = '/a4_50_bgd_omr'; // adjust if needed
+const BASE = '/a4_50_bgd_omr';
 
-const LIBRARIES = [
+// Cache static assets (including index.html and root)
+const STATIC_ASSETS = [
+  `${BASE}/`,
+  `${BASE}/index.html`,
   `${BASE}/libs/opencv.js`,
   `${BASE}/libs/pdf.min.js`,
   `${BASE}/libs/pdf.worker.min.js`,
@@ -20,9 +23,9 @@ const ENCRYPTED_TOOLS = [
   `${BASE}/encrypted/tool4.html.enc`
 ];
 
-let decryptionKey = null; // stored in IndexedDB inside SW
+let decryptionKey = null;
 
-// Open IndexedDB to store the key
+// IndexedDB helpers (unchanged)
 function openKeyDB() {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open('omr_key_db', 1);
@@ -53,22 +56,6 @@ async function getKey() {
   });
 }
 
-async function setKey(base64Key) {
-  const db = await openKeyDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction('keys', 'readwrite');
-    const store = tx.objectStore('keys');
-    const put = store.put(base64Key, 'aes-key');
-    put.onsuccess = () => {
-      decryptionKey = base64Key;
-      resolve();
-    };
-    put.onerror = () => reject(put.error);
-    db.close();
-  });
-}
-
-// Decrypt using Web Crypto
 async function decrypt(encryptedArrayBuffer, keyBase64) {
   const keyBytes = Uint8Array.from(atob(keyBase64), c => c.charCodeAt(0));
   const cryptoKey = await crypto.subtle.importKey('raw', keyBytes, 'AES-GCM', false, ['decrypt']);
@@ -81,7 +68,7 @@ async function decrypt(encryptedArrayBuffer, keyBase64) {
 self.addEventListener('install', event => {
   event.waitUntil(
     caches.open(CACHE_NAME).then(cache => {
-      return cache.addAll([...LIBRARIES, ...ENCRYPTED_TOOLS]);
+      return cache.addAll([...STATIC_ASSETS, ...ENCRYPTED_TOOLS]);
     })
   );
   self.skipWaiting();
@@ -93,34 +80,25 @@ self.addEventListener('fetch', event => {
   // Intercept tool1.html, tool2.html, etc.
   if (url.pathname.match(/\/tool[1-4]\.html$/)) {
     event.respondWith((async () => {
-      // Map to the corresponding encrypted file
-      const toolName = url.pathname.split('/').pop(); // e.g., "tool1.html"
+      const toolName = url.pathname.split('/').pop();
       const encFileName = toolName.replace('.html', '.html.enc');
       const encryptedUrl = `${BASE}/encrypted/${encFileName}`;
       
       const cache = await caches.open(CACHE_NAME);
       let response = await cache.match(encryptedUrl);
       if (!response) {
-        // Fallback: fetch from network (should not happen after first visit)
         response = await fetch(encryptedUrl);
         if (response.ok) await cache.put(encryptedUrl, response.clone());
       }
       const encryptedBuffer = await response.arrayBuffer();
-      
       const key = await getKey();
       if (!key) {
-        // No key stored – redirect to index page to ask for key
         return Response.redirect(`${BASE}/?needkey=1`, 302);
       }
       try {
-        //const htmlContent = await decrypt(encryptedBuffer, key);
-        // Return as HTML with proper content type
-        //return new Response(htmlContent, {
-         // headers: { 'Content-Type': 'text/html' }
         const htmlContent = await decrypt(encryptedBuffer, key);
-        const fixedHtml = htmlContent.replace(/\.\.\/libs\//g, '/a4_50_bgd_omr/libs/');
+        const fixedHtml = htmlContent.replace(/\.\.\/libs\//g, `${BASE}/libs/`);
         return new Response(fixedHtml, { headers: { 'Content-Type': 'text/html' } });
-        //});
       } catch(e) {
         return new Response('Decryption failed', { status: 500 });
       }
@@ -128,7 +106,7 @@ self.addEventListener('fetch', event => {
     return;
   }
   
-  // For all other requests (libraries, index.html, etc.), serve from cache or network
+  // For all other requests (including index.html, libraries, etc.), serve from cache or network
   event.respondWith(
     caches.match(event.request).then(res => res || fetch(event.request))
   );
